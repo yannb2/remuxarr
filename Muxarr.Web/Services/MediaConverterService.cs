@@ -171,6 +171,10 @@ public class MediaConverterService(
         try
         {
             await HandleConversion(conversion, context, scope, _currentConversionCts.Token);
+            if (conversion.OutputPath != null)
+            {
+                await ForgetOutsideFile(conversion, context);
+            }
         }
         finally
         {
@@ -428,6 +432,151 @@ public class MediaConverterService(
         return QueueResult.Queued;
     }
 
+    /// <summary>
+    ///     Fork, Remux a file: queues a file from outside the library (the folders in
+    ///     Settings &gt; Processing, /downloads and /mnt/pc). The source is only read; the
+    ///     result is written to the clean folder under the same name. The file gets a
+    ///     library row for the run (the converter works on rows), dropped again at the end.
+    /// </summary>
+    public async Task<OutsideQueueResult> AddOutsideFileToQueue(string path, Profile profile,
+        string? originalLanguage, ConversionPlan? customPlan = null)
+    {
+        if (!File.Exists(path))
+        {
+            return OutsideQueueResult.Fail($"'{path}' is not accessible. The file or its disk may be gone.");
+        }
+
+        await MediaLibraryLocks.QueueMutation.WaitAsync();
+        try
+        {
+            using var scope = ServiceScopeFactory.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var output = OutsideOutputPath(context.Configs.GetOrDefault<ProcessingConfig>(), path);
+            if (output == path)
+            {
+                return OutsideQueueResult.Fail("This file is already in the clean folder.");
+            }
+
+            if (File.Exists(output))
+            {
+                return OutsideQueueResult.Fail($"{output} already exists. Move or delete it first.");
+            }
+
+            if (await context.MediaConversions.AnyAsync(x => x.OutputPath == output &&
+                                                             (x.State == ConversionState.New ||
+                                                              x.State == ConversionState.Processing)))
+            {
+                return OutsideQueueResult.Fail($"A conversion that writes {output} is already queued.");
+            }
+
+            var profiles = await context.Profiles.ToListAsync();
+            profile = profiles.FirstOrDefault(p => p.Id == profile.Id) ?? profile;
+            var inLibrary = InLibrary(path, profiles);
+            var dbFile = await context.MediaFiles.WithTracks().FirstOrDefaultAsync(x => x.Path == path);
+            if (dbFile == null)
+            {
+                dbFile = new MediaFile { Path = path };
+                context.Add(dbFile);
+            }
+            else if (await HasActiveConversion(context, dbFile.Id))
+            {
+                return OutsideQueueResult.Fail($"{Path.GetFileName(path)} is already in the conversion queue.");
+            }
+
+            // A library file keeps its own row as it is. An outside file has no Radarr or
+            // Sonarr entry, so its original language is the one picked on the page.
+            var scanProfile = profile;
+            if (inLibrary && dbFile.Id != 0)
+            {
+                scanProfile = profiles.FirstOrDefault(p => p.Id == dbFile.ProfileId) ?? profile;
+            }
+            else
+            {
+                dbFile.ProfileId = profile.Id;
+                dbFile.Profile = profile;
+                dbFile.OriginalLanguage = string.IsNullOrWhiteSpace(originalLanguage) ? null : originalLanguage;
+            }
+
+            await scanner.ScanMediaFile(dbFile, true, context, scanProfile);
+            if (dbFile.Snapshot is not { Tracks.Count: > 0 })
+            {
+                if (context.Entry(dbFile).State == EntityState.Added)
+                {
+                    context.Entry(dbFile).State = EntityState.Detached;
+                }
+                else if (!inLibrary)
+                {
+                    context.MediaFiles.Remove(dbFile);
+                    await context.SaveChangesAsync();
+                }
+
+                return OutsideQueueResult.Fail($"Could not read the tracks of {Path.GetFileName(path)}.");
+            }
+
+            context.Add(new MediaConversion
+            {
+                MediaFileId = dbFile.Id,
+                MediaFile = dbFile,
+                SizeBefore = dbFile.Size,
+                ConversionPlan = customPlan ?? dbFile.BuildTargetFromProfile(profile),
+                BeforeSnapshotId = dbFile.SnapshotId,
+                State = ConversionState.New,
+                Name = Path.GetFileName(path),
+                IsCustomConversion = customPlan != null,
+                OutputPath = output
+            });
+            await context.SaveChangesAsync();
+            logger.LogInformation("Queued {Source} to be remuxed into {Output}", path, output);
+        }
+        finally
+        {
+            MediaLibraryLocks.QueueMutation.Release();
+        }
+
+        _ = RunAsync(CancellationToken.None);
+        return OutsideQueueResult.Ok;
+    }
+
+    /// <summary>Where Remux a file writes <paramref name="source"/>: the clean folder, same file name.</summary>
+    public static string OutsideOutputPath(ProcessingConfig config, string source)
+    {
+        return Path.Combine(config.GetCleanFolder(), Path.GetFileName(source));
+    }
+
+    private static bool InLibrary(string path, IEnumerable<Profile> profiles)
+    {
+        return profiles.SelectMany(p => p.Directories)
+            .Any(dir => path.StartsWith(dir.TrimEnd('/') + "/", StringComparison.Ordinal));
+    }
+
+    // An outside file's row only lives for its conversion, so the library list stays the
+    // library. A row under a profile folder is a library file and stays.
+    private async Task ForgetOutsideFile(MediaConversion conversion, AppDbContext context)
+    {
+        try
+        {
+            if (conversion.MediaFile is not { Id: > 0 } file)
+            {
+                return;
+            }
+
+            var profiles = await context.Profiles.ToListAsync();
+            if (InLibrary(file.Path, profiles) || await context.MediaConversions.AnyAsync(x =>
+                    x.MediaFileId == file.Id && x.Id != conversion.Id &&
+                    (x.State == ConversionState.New || x.State == ConversionState.Processing)))
+            {
+                return;
+            }
+
+            context.MediaFiles.Remove(file);
+            await context.SaveChangesAsync(CancellationToken.None);
+        }
+        catch (Exception e)
+        {
+            logger.LogWarning(e, "Could not drop the row of outside file {Name}", conversion.Name);
+        }
+    }
+
     private static Task<bool> HasActiveConversion(AppDbContext context, int mediaFileId)
     {
         return context.MediaConversions
@@ -582,7 +731,36 @@ public class MediaConverterService(
             }
         }
 
-        if (strategy == ConversionPlanner.ConversionStrategy.Skip)
+        var outputPath = conversion.OutputPath;
+        if (outputPath != null)
+        {
+            // Remux a file: the source is never touched, so a metadata fix or a file that
+            // needs nothing still goes through a remux that writes the copy.
+            conversion.Log($"Remux a file: reading {conversion.MediaFile.Path}, writing {outputPath}. " +
+                           "The source is left as it is.", logger);
+            strategy = ConversionPlanner.ConversionStrategy.Remux;
+            if (File.Exists(outputPath))
+            {
+                conversion.StartedDate ??= DateTime.UtcNow;
+                conversion.Log($"{outputPath} already exists. Move or delete it, then queue the file again.", logger, true);
+                conversion.State = ConversionState.Failed;
+            }
+            else
+            {
+                try
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(outputPath)!);
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    conversion.StartedDate ??= DateTime.UtcNow;
+                    conversion.Log($"Cannot write to {Path.GetDirectoryName(outputPath)}: {e.Message} " +
+                                   "It has to be mounted read-write in the container.", logger, true);
+                    conversion.State = ConversionState.Failed;
+                }
+            }
+        }
+        else if (strategy == ConversionPlanner.ConversionStrategy.Skip)
         {
             conversion.StartedDate ??= DateTime.UtcNow;
             conversion.Log("File already optimized, skipping.", logger);
@@ -606,8 +784,9 @@ public class MediaConverterService(
             return;
         }
 
-        // The copy is written next to the original, so that disk needs room for about one more of it.
-        var directory = Path.GetDirectoryName(conversion.MediaFile.Path)!;
+        // The copy is written next to the original (or into the clean folder), so that disk
+        // needs room for about one more of it.
+        var directory = Path.GetDirectoryName(outputPath ?? conversion.MediaFile.Path)!;
         if (FileHelper.GetAvailableFreeSpace(directory) is { } free && free < conversion.MediaFile.Size)
         {
             conversion.Log($"Not enough free space in {directory} for the converted copy: it needs about " +
@@ -643,7 +822,7 @@ public class MediaConverterService(
             ? TimeSpan.FromMinutes(Config.ConversionTimeoutMinutes)
             : (TimeSpan?)null;
 
-        var tmp = conversion.MediaFile.Path + ".muxtmp";
+        var tmp = (outputPath ?? conversion.MediaFile.Path) + ".muxtmp";
         try
         {
             conversion.TempFilePath = tmp;
@@ -663,7 +842,14 @@ public class MediaConverterService(
                 await RunMkvMergeRemuxAsync(conversion, delta, tmp, context, conversionTimeout, token);
             }
 
-            await FinalizeTemporaryOutputAsync(conversion, tmp, context, scope, measuredEnds, token);
+            if (outputPath != null)
+            {
+                await FinalizeOutsideOutputAsync(conversion, tmp, outputPath, context, measuredEnds, token);
+            }
+            else
+            {
+                await FinalizeTemporaryOutputAsync(conversion, tmp, context, scope, measuredEnds, token);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -1056,8 +1242,12 @@ public class MediaConverterService(
     /// rescans, runs post-processing and updates stats. Shared by both
     /// tempfile writers.
     /// </summary>
-    private async Task FinalizeTemporaryOutputAsync(MediaConversion conversion, string tmp, AppDbContext context,
-        IServiceScope scope, IReadOnlyDictionary<int, long>? measuredEnds, CancellationToken token)
+    /// <summary>
+    /// Checks the temp file: there, readable, and as planned (no lost tracks, HDR or
+    /// length). Throws when it is not, so the source stays as it is.
+    /// </summary>
+    private async Task<MediaFile> ValidateTemporaryOutputAsync(MediaConversion conversion, string tmp,
+        IReadOnlyDictionary<int, long>? measuredEnds, CancellationToken token)
     {
         var fileInfo = new FileInfo(tmp);
         if (!fileInfo.Exists || fileInfo.Length == 0)
@@ -1086,6 +1276,46 @@ public class MediaConverterService(
         ConverterStateChanged?.Invoke(new ConverterProgressEvent(conversion));
 
         token.ThrowIfCancellationRequested();
+        return probed;
+    }
+
+    /// <summary>
+    /// Fork, Remux a file: validates the temp file like a library conversion, then moves it
+    /// to the clean folder. The source is not touched, no arr is told and no
+    /// post-processing runs: the file is not in the library.
+    /// </summary>
+    private async Task FinalizeOutsideOutputAsync(MediaConversion conversion, string tmp, string outputPath,
+        AppDbContext context, IReadOnlyDictionary<int, long>? measuredEnds, CancellationToken token)
+    {
+        var probed = await ValidateTemporaryOutputAsync(conversion, tmp, measuredEnds, token);
+        if (File.Exists(outputPath))
+        {
+            throw new IOException($"{outputPath} appeared while the remux ran; it was left as it is.");
+        }
+
+        Step(conversion, "Moving the new file", 0);
+        conversion.Log($"Moving new file to {outputPath}..", logger);
+        await FileHelper.MoveFileAsync(tmp, outputPath,
+            i =>
+            {
+                StepPercent(conversion, i);
+                conversion.Progress = 95 + (int)(i * 0.05);
+                ConverterStateChanged?.Invoke(new ConverterProgressEvent(conversion));
+            }, token);
+
+        conversion.SizeAfter = new FileInfo(outputPath).Length;
+        conversion.AfterSnapshot = probed.Snapshot;
+        conversion.SizeDifference = Math.Abs(conversion.SizeBefore - conversion.SizeAfter);
+        conversion.State = ConversionState.Completed;
+        conversion.Progress = 100;
+        conversion.Log($"Done! Wrote {outputPath}.", logger);
+        await context.SaveChangesAsync(CancellationToken.None);
+    }
+
+    private async Task FinalizeTemporaryOutputAsync(MediaConversion conversion, string tmp, AppDbContext context,
+        IServiceScope scope, IReadOnlyDictionary<int, long>? measuredEnds, CancellationToken token)
+    {
+        await ValidateTemporaryOutputAsync(conversion, tmp, measuredEnds, token);
 
         var backupFile = conversion.MediaFile!.Path + ".muxbak";
         var swapCommitted = false;
@@ -1341,6 +1571,13 @@ public class MediaConverterService(
             conversion.Log($"Post-processing failed: {e.Message}", logger, true);
         }
     }
+}
+
+/// <summary>Fork, Remux a file: whether the file was queued, and why not.</summary>
+public sealed record OutsideQueueResult(bool Queued, string? Error)
+{
+    public static readonly OutsideQueueResult Ok = new(true, null);
+    public static OutsideQueueResult Fail(string error) => new(false, error);
 }
 
 public enum QueueResult

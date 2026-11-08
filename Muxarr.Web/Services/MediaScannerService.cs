@@ -518,7 +518,17 @@ public class MediaScannerService(
             .Select(f => new { f.Id, f.Path })
             .ToListAsync(token);
 
+        // A file queued from the Remux a file page lives outside every profile folder
+        // until its conversion is done; the converter drops its row then.
+        var busy = (await context.MediaConversions
+                .Where(c => c.MediaFileId != null &&
+                            (c.State == ConversionState.New || c.State == ConversionState.Processing))
+                .Select(c => c.MediaFileId!.Value)
+                .ToListAsync(token))
+            .ToHashSet();
+
         var idsToRemove = files
+            .Where(f => !busy.Contains(f.Id))
             .Where(f =>
                 // Never purge files that live under an offline directory
                 !inaccessible.Any(dir => f.Path.StartsWith(dir)) &&

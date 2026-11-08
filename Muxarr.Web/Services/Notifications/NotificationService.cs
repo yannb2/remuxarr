@@ -237,6 +237,12 @@ public sealed class NotificationService
 
     private async Task<string?> ResolveFilePathAsync(MediaConversion conversion)
     {
+        // Remux a file: the file that came out is the one to tell about.
+        if (conversion.OutputPath != null)
+        {
+            return conversion.OutputPath;
+        }
+
         if (conversion.MediaFile is { Path.Length: > 0 })
         {
             return conversion.MediaFile.Path;

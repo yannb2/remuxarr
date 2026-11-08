@@ -150,6 +150,10 @@ namespace Muxarr.Data.Migrations
                         .HasMaxLength(4096)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("OutputPath")
+                        .HasMaxLength(4096)
+                        .HasColumnType("TEXT");
+
                     b.Property<int>("Progress")
                         .HasColumnType("INTEGER");
 
