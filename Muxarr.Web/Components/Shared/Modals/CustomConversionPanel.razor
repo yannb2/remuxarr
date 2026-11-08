@@ -1,0 +1,432 @@
+@using Muxarr.Web.Components.Pages.Library
+@* The custom conversion editor itself: file title, every track (keep, order, language, name, flags),
+   chapters and global tags. The modal wraps it with Cancel / Add to Queue; the file pages show it inline,
+   filled from the profile, with their own buttons in Actions. *@
+
+    <div class="mb-3">
+        <label class="form-label small text-muted mb-1" for="customFileTitle">File title</label>
+        <div class="d-flex gap-2">
+            <input id="customFileTitle" type="text" class="form-control form-control-sm"
+                   placeholder="(no title)" @bind="Editor.FileTitle" @bind:event="oninput"/>
+            <button type="button" class="btn btn-sm btn-outline-secondary text-nowrap"
+                    disabled="@(Editor.FileTitle.Length == 0)" @onclick="() => Editor.FileTitle = string.Empty">
+                Clear
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary text-nowrap"
+                    disabled="@(Editor.FileTitle == Editor.CurrentFileTitle)"
+                    @onclick="() => Editor.FileTitle = Editor.CurrentFileTitle">
+                Reset
+            </button>
+        </div>
+        <small class="form-text text-muted">The container title players show. Changing only this is an instant
+            metadata edit on MKV.</small>
+    </div>
+
+    @if (!Editor.HasAudio)
+    {
+        <div class="alert alert-danger py-2">
+            <i class="bi bi-exclamation-triangle me-2"></i>At least one audio track must be selected.
+        </div>
+    }
+
+    <table class="table table-sm align-middle mb-0 mux-card-table">
+        <thead>
+        <tr>
+            <th style="width: 52px;"></th>
+            <th style="width: 40px;"></th>
+            <th style="width: 200px;">Language</th>
+            <th style="width: 1%;">Format</th>
+            <th>Track Name</th>
+            <th>Flags</th>
+        </tr>
+        </thead>
+        <tbody>
+        @{ MediaTrackType? lastType = null; }
+        @foreach (var track in Editor.Tracks)
+        {
+            if (track.Type != lastType)
+            {
+                lastType = track.Type;
+                <tr>
+                    <td colspan="6" class="fw-semibold text-body-secondary small py-1">
+                        <i class="bi @TrackTypeDisplay.Icon(track.Type) me-1"></i>@TrackTypeDisplay.Label(track.Type)
+                    </td>
+                </tr>
+            }
+
+            var isVideo = track.Type == MediaTrackType.Video;
+            var isChecked = Editor.IsSelected(track);
+            <tr class="@(!isChecked && !isVideo ? "opacity-50" : "")">
+                <td class="text-center pe-0 mux-cell-inline">
+                    @if (!isVideo)
+                    {
+                        <ToolTip Tip="Move up">
+                            <button type="button" class="btn btn-link btn-sm text-muted p-0 me-1"
+                                    disabled="@(!Editor.CanMoveUp(track))" @onclick="() => Editor.Move(track, -1)">
+                                <i class="bi bi-chevron-up" style="font-size: 0.7rem;"></i>
+                            </button>
+                        </ToolTip>
+                        <ToolTip Tip="Move down">
+                            <button type="button" class="btn btn-link btn-sm text-muted p-0"
+                                    disabled="@(!Editor.CanMoveDown(track))" @onclick="() => Editor.Move(track, 1)">
+                                <i class="bi bi-chevron-down" style="font-size: 0.7rem;"></i>
+                            </button>
+                        </ToolTip>
+                    }
+                </td>
+                <td class="mux-cell-inline">
+                    <input type="checkbox"
+                           class="form-check-input"
+                           checked="@isChecked"
+                           disabled="@isVideo"
+                           @onchange="() => ToggleTrack(track)"/>
+                </td>
+                <td class="mux-cell-inline">
+                    <select class="form-select form-select-sm"
+                            value="@track.LanguageName"
+                            @onchange="e => Editor.SetLanguage(track, e.Value?.ToString())">
+                        @foreach (var lang in Editor.Languages)
+                        {
+                            <option value="@lang.Name">@lang.Name</option>
+                        }
+                    </select>
+                </td>
+                <td class="mux-cell-inline text-nowrap">
+                    <code>@track.Codec.FormatCodec()</code>
+                    @if (Details(track) is { Length: > 0 } details)
+                    {
+                        <div class="small text-muted text-nowrap">@details</div>
+                    }
+                </td>
+                <td data-label="Name">
+                    <input type="text"
+                           class="form-control form-control-sm"
+                           placeholder="(none)"
+                           value="@track.Name"
+                           @onchange="e => track.Name = e.Value?.ToString()"/>
+                    @if (ShowCurrent && CurrentOf(track) is { } current && Changed(track, current))
+                    {
+                        <div class="small text-muted mt-1 text-break">
+                            <i class="bi bi-arrow-return-right me-1"></i>Now: @Describe(current)
+                        </div>
+                    }
+                    @if (Editor.DescriptionOf(track) is { } description)
+                    {
+                        <div class="input-group input-group-sm mt-1">
+                            <span class="input-group-text"
+                                  title="Fills {description} in the profile's name template. Without it in the template, the text goes in brackets at the end. Start with = to type the whole name.">
+                                <i class="bi bi-chat-left-text"></i>
+                            </span>
+                            <input type="text"
+                                   class="form-control form-control-sm"
+                                   placeholder="Description"
+                                   value="@description"
+                                   @onchange="e => Editor.Describe(track, e.Value?.ToString())"/>
+                        </div>
+                    }
+                    @if (Editor.OriginalNameOf(track) is { } originalName)
+                    {
+                        <div class="d-flex align-items-center gap-1 mt-1 small text-muted">
+                            <i class="bi bi-clock-history"></i>
+                            <span class="text-break">@originalName</span>
+                            <ToolTip Tip="Use the name this track arrived with">
+                                <button type="button" class="btn btn-link btn-sm p-0 ms-1"
+                                        @onclick="() => Editor.UseOriginalName(track)">use this</button>
+                            </ToolTip>
+                        </div>
+                    }
+                </td>
+                <td data-label="Flags">
+                    @if (!isVideo)
+                    {
+                        <div class="d-flex gap-1">
+                            <ToolTip Tip="Default - Player will auto-select this track during playback">
+                                <button type="button"
+                                        class="btn btn-sm @(track.IsDefault ? "btn-primary" : "btn-outline-secondary")"
+                                        @onclick="() => Editor.Edit(track, t => t.IsDefault = !t.IsDefault)">
+                                    <i class="bi bi-play-circle"></i>
+                                </button>
+                            </ToolTip>
+                            @if (track.Type == MediaTrackType.Subtitles)
+                            {
+                                <ToolTip
+                                    Tip="Hearing Impaired (SDH) - Includes sound descriptions for deaf/hard of hearing viewers">
+                                    <button type="button"
+                                            class="btn btn-sm @(track.IsHearingImpaired ? "btn-primary" : "btn-outline-secondary")"
+                                            @onclick="() => Editor.Edit(track, t => t.IsHearingImpaired = !t.IsHearingImpaired)">
+                                        <i class="bi bi-ear"></i>
+                                    </button>
+                                </ToolTip>
+                                <ToolTip
+                                    Tip="Forced - Shows even when subtitles are off. Used for foreign dialogue in otherwise native-language films.">
+                                    <button type="button"
+                                            class="btn btn-sm @(track.IsForced ? "btn-primary" : "btn-outline-secondary")"
+                                            @onclick="() => Editor.Edit(track, t => t.IsForced = !t.IsForced)">
+                                        <i class="bi bi-lock"></i>
+                                    </button>
+                                </ToolTip>
+                            }
+                            <ToolTip Tip="Commentary - Director/crew commentary track">
+                                <button type="button"
+                                        class="btn btn-sm @(track.IsCommentary ? "btn-primary" : "btn-outline-secondary")"
+                                        @onclick="() => Editor.Edit(track, t => t.IsCommentary = !t.IsCommentary)">
+                                    <i class="bi bi-chat-quote"></i>
+                                </button>
+                            </ToolTip>
+                            <ToolTip
+                                Tip="Dub - Translated audio (e.g. English dub of a Japanese show). Matroska has no FlagDub; the state is stored in the track title and will be appended/stripped automatically when you toggle this. On MP4 it maps to a native disposition flag.">
+                                <button type="button"
+                                        class="btn btn-sm @(track.IsDub ? "btn-primary" : "btn-outline-secondary")"
+                                        @onclick="() => Editor.Edit(track, t => t.IsDub = !t.IsDub)">
+                                    <i class="bi bi-translate"></i>
+                                </button>
+                            </ToolTip>
+                        </div>
+                    }
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+
+    @if (Editor.CanRenameChapters)
+    {
+        <details class="mt-3" open="@Editor.Chapters.Any(c => c.IsChanged)">
+            <summary class="fw-semibold text-body-secondary small">
+                <i class="bi bi-bookmarks me-1"></i>Chapters (@Editor.Chapters.Count)
+            </summary>
+            <div class="d-flex gap-2 my-2">
+                <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => Editor.NumberChapters()">
+                    <i class="bi bi-list-ol me-1"></i>Chapter 1, 2, 3...
+                </button>
+                @if (Editor.HasOriginalChapterTitles)
+                {
+                    <button type="button" class="btn btn-outline-secondary btn-sm"
+                            @onclick="Editor.UseOriginalChapterTitles">
+                        <i class="bi bi-clock-history me-1"></i>Original titles
+                    </button>
+                }
+                <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="Editor.ResetChapters">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
+                </button>
+            </div>
+            <table class="table table-sm align-middle mb-0">
+                <tbody>
+                @foreach (var chapter in Editor.Chapters)
+                {
+                    <tr>
+                        <td class="text-muted small text-nowrap" style="width: 80px;">@ChapterInfo.FormatTime(chapter.StartMs)</td>
+                        <td>
+                            <input type="text" class="form-control form-control-sm @(chapter.IsChanged ? "border-primary" : "")"
+                                   placeholder="@(string.IsNullOrEmpty(chapter.Current) ? "(no title)" : chapter.Current)"
+                                   @bind="chapter.Title" @bind:event="oninput"/>
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+            <small class="text-muted d-block mt-1">Only the titles change; an empty box keeps the current
+                title.</small>
+        </details>
+    }
+
+    @if (Editor.CanEditTags)
+    {
+        <div class="mt-3">
+            <label class="form-label small fw-semibold text-body-secondary mb-1" for="releaseLabel">
+                <i class="bi bi-award me-1"></i>Release label
+            </label>
+            <input id="releaseLabel" class="form-control form-control-sm" style="max-width: 320px;"
+                   placeholder="Criterion, Arrow, Shout! Factory..."
+                   value="@Editor.ReleaseLabel"
+                   @onchange="e => Editor.ReleaseLabel = e.Value?.ToString() ?? string.Empty"/>
+            <small class="text-muted d-block">
+                Written to the @CustomConversionEditor.ReleaseLabelTag tag, as Ripparr does; Jellyfin shows it as
+                "Release: ..." through edition_tags.py. Empty removes the tag. A file still tagged
+                @CustomConversionEditor.OldReleaseLabelTag (before 1.1.2) moves to @CustomConversionEditor.ReleaseLabelTag when you change the box.
+            </small>
+        </div>
+        <details class="mt-3" open="@Editor.TagsChanged">
+            <summary class="fw-semibold text-body-secondary small">
+                <i class="bi bi-tags me-1"></i>Global tags (@Editor.Tags.Count(t => !t.IsNew))
+            </summary>
+            <div class="d-flex gap-2 my-2">
+                <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="Editor.AddTag">
+                    <i class="bi bi-plus-lg me-1"></i>Add tag
+                </button>
+                @if (Editor.BackedUpTags != null)
+                {
+                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="Editor.UseBackedUpTags">
+                        <i class="bi bi-clock-history me-1"></i>Backed-up tags
+                    </button>
+                }
+                <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="Editor.ResetTags">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
+                </button>
+            </div>
+            @if (Editor.Tags.Count == 0)
+            {
+                <small class="text-muted d-block">This file has no global tags.</small>
+            }
+            else
+            {
+                <table class="table table-sm align-middle mb-0">
+                    <tbody>
+                    @foreach (var tag in Editor.Tags)
+                    {
+                        <tr class="@(tag.Removed ? "opacity-50" : "")">
+                            <td style="width: 35%;">
+                                @if (tag.IsNew)
+                                {
+                                    <input type="text" class="form-control form-control-sm border-primary"
+                                           placeholder="NAME" @bind="tag.Name" @bind:event="oninput"/>
+                                }
+                                else
+                                {
+                                    <span class="small text-break @(tag.Removed ? "text-decoration-line-through" : "")">@tag.Name</span>
+                                }
+                            </td>
+                            <td>
+                                <input type="text"
+                                       class="form-control form-control-sm @(tag.IsChanged && !tag.Removed ? "border-primary" : "")"
+                                       disabled="@tag.Removed"
+                                       @bind="tag.Value" @bind:event="oninput"/>
+                            </td>
+                            <td style="width: 40px;">
+                                <ToolTip Tip="@(tag.Removed ? "Keep this tag" : "Remove this tag")">
+                                    <button type="button" class="btn btn-sm btn-link p-0 @(tag.Removed ? "text-secondary" : "text-danger")"
+                                            @onclick="() => tag.Removed = !tag.Removed">
+                                        <i class="bi @(tag.Removed ? "bi-arrow-counterclockwise" : "bi-trash")"></i>
+                                    </button>
+                                </ToolTip>
+                            </td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            }
+            @if (Editor.TagProblem is { } problem)
+            {
+                <small class="text-danger d-block mt-1">@problem The tags will not be changed until this is fixed.</small>
+            }
+            else
+            {
+                <small class="text-muted d-block mt-1">Track tags, targets and tag languages stay as they are.</small>
+            }
+        </details>
+    }
+
+
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
+        <div class="d-flex align-items-center gap-2">
+            @if (ShowProfileBar && Profiles.Count > 0)
+            {
+                <select class="form-select form-select-sm" style="width: auto;"
+                        value="@_selectedProfileId"
+                        @onchange="OnProfileSelected">
+                    @foreach (var p in Profiles)
+                    {
+                        <option value="@p.Id">@p.Name</option>
+                    }
+                </select>
+                <ToolTip Tip="Apply the selected profile's track rules">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="ApplyProfileTemplate">
+                        <i class="bi bi-magic me-2"></i>Apply Profile
+                    </button>
+                </ToolTip>
+            }
+            @LeftActions
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+            @Actions
+        </div>
+    </div>
+
+@code {
+    [Parameter] [EditorRequired] public CustomConversionEditor Editor { get; set; } = default!;
+
+    /// <summary>The file as it is now, for the "Now:" line under a track the editor changed.</summary>
+    [Parameter] public MediaFile? File { get; set; }
+
+    /// <summary>Show "Now: ..." under each track whose name, language or flags the editor changes.</summary>
+    [Parameter] public bool ShowCurrent { get; set; }
+
+    [Parameter] public bool ShowProfileBar { get; set; } = true;
+    [Parameter] public Profile? Profile { get; set; }
+    [Parameter] public List<Profile> Profiles { get; set; } = new();
+    [Parameter] public RenderFragment? Actions { get; set; }
+    [Parameter] public RenderFragment? LeftActions { get; set; }
+
+    private int _selectedProfileId;
+
+    protected override void OnInitialized()
+    {
+        _selectedProfileId = Profile?.Id ?? Profiles.FirstOrDefault()?.Id ?? 0;
+    }
+
+    private void OnProfileSelected(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var id))
+        {
+            _selectedProfileId = id;
+        }
+    }
+
+    private void ApplyProfileTemplate()
+    {
+        if (Profiles.FirstOrDefault(p => p.Id == _selectedProfileId) is { } profile)
+        {
+            Editor.ApplyProfile(profile);
+        }
+    }
+
+    private void ToggleTrack(TrackSnapshot track)
+    {
+        Editor.ToggleTrack(track);
+    }
+
+    private TrackSnapshot? CurrentOf(TrackSnapshot track) =>
+        File?.Snapshot.Tracks.FirstOrDefault(t => t.Index == track.Index);
+
+    private static bool Changed(TrackSnapshot edited, TrackSnapshot current) =>
+        (edited.Name ?? "") != (current.Name ?? "")
+        || edited.LanguageCode != current.LanguageCode
+        || edited.IsDefault != current.IsDefault
+        || edited.IsForced != current.IsForced
+        || edited.IsHearingImpaired != current.IsHearingImpaired
+        || edited.IsCommentary != current.IsCommentary
+        || edited.IsDub != current.IsDub;
+
+    // How the track reads now: its name, language and the flags it carries.
+    private static string Describe(TrackSnapshot current)
+    {
+        var flags = new List<string>();
+        if (current.IsDefault) flags.Add("default");
+        if (current.IsForced) flags.Add("forced");
+        if (current.IsHearingImpaired) flags.Add("SDH");
+        if (current.IsCommentary) flags.Add("commentary");
+        if (current.IsDub) flags.Add("dub");
+        var name = string.IsNullOrEmpty(current.Name) ? "(no name)" : current.Name;
+        return $"{name} · {current.LanguageName}" + (flags.Count > 0 ? $" · {string.Join(", ", flags)}" : "");
+    }
+
+    /// <summary>What the file says about the track beyond its codec: resolution and HDR, channels, length.</summary>
+    public static string Details(IMediaTrack track)
+    {
+        var parts = new List<string>();
+        if (track.Type == MediaTrackType.Video)
+        {
+            if (!string.IsNullOrEmpty(track.Resolution)) parts.Add(track.Resolution);
+            if (!string.IsNullOrEmpty(track.DvProfile)) parts.Add($"DV P{track.DvProfile} {track.DvLayer}".Trim());
+            if (!string.IsNullOrEmpty(track.HdrFormat)) parts.Add(track.HdrFormat);
+        }
+        else if (track.Type == MediaTrackType.Audio)
+        {
+            if (track.GetChannelLayout() is { } channels) parts.Add(channels);
+            if (track.AudioFeature != AudioFeature.None) parts.Add(track.AudioFeature.GetDisplayName());
+        }
+
+        if (track.DurationMs > 0) parts.Add(track.DurationMs.FormatDuration());
+        return string.Join(" · ", parts);
+    }
+}
