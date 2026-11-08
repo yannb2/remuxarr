@@ -36,7 +36,7 @@ public class CustomConversionEditor
                 Original = file.OriginalTrackNames?.OriginalChapterTitle(c.StartMs)
             })
             .ToList();
-        Tags = file.Snapshot.GlobalTags.Select(t => new TagEdit(t.Name, t.Value)).ToList();
+        Tags = BuildTags();
 
         // Start from raw file state: every track kept, no mutations applied.
         // ApplyProfile is how the user opts into a profile's rules.
@@ -97,6 +97,15 @@ public class CustomConversionEditor
     public bool CanRenameChapters =>
         Chapters.Count > 0 && _file.Snapshot.ContainerType.ToContainerFamily() == ContainerFamily.Matroska;
 
+    /// <summary>The file has chapters (listed or not), so they can be kept or removed.</summary>
+    public bool HasChapters => _file.Snapshot.HasChapters || Chapters.Count > 0;
+
+    /// <summary>
+    /// Keep the chapters (true) or remove them all. Starts true; Apply Profile sets it from the
+    /// profile's "Remove chapters". Removing wins over renaming.
+    /// </summary>
+    public bool KeepChapters { get; set; } = true;
+
     /// <summary>Titles every chapter "Chapter 1", "Chapter 2", ... with the given word.</summary>
     public void NumberChapters(string word = "Chapter")
     {
@@ -109,13 +118,18 @@ public class CustomConversionEditor
 
     public void ResetChapters()
     {
+        KeepChapters = true;
         foreach (var chapter in Chapters)
         {
             chapter.Title = chapter.Current;
         }
     }
 
-    /// <summary>One global tag: as the file has it, as the user wants it, or one the user added.</summary>
+    /// <summary>
+    /// One global tag: as the file has it, as the user wants it, or one the user added. A slot is
+    /// one of the usual tags (<see cref="DefaultTags"/>) the file does not have: listed so it can be
+    /// filled, and left out of the file while it stays empty.
+    /// </summary>
     public sealed class TagEdit(string name, string? current)
     {
         public string Name { get; set; } = name;
@@ -123,7 +137,60 @@ public class CustomConversionEditor
         public string Value { get; set; } = current ?? "";
         public bool Removed { get; set; }
         public bool IsNew => Current == null;
-        public bool IsChanged => Removed || IsNew || Value != Current;
+        public bool IsSlot { get; init; }
+
+        /// <summary>What the tag holds, for the usual tags.</summary>
+        public string? Hint { get; init; }
+
+        public bool IsEmptySlot => IsSlot && string.IsNullOrWhiteSpace(Value);
+        public bool IsChanged => !IsEmptySlot && (Removed || IsNew || Value != Current);
+    }
+
+    /// <summary>
+    /// The global tags tag_release.py and Ripparr write, in that order: always listed on the editor,
+    /// empty when the file does not have them, so any of them can be filled in.
+    /// </summary>
+    public static readonly IReadOnlyList<(string Name, string Hint)> DefaultTags =
+    [
+        ("TMDB", "movie/603 or tv/1399"),
+        ("IMDB", "tt0133093"),
+        ("TVDB2", "series/121361"),
+        ("RELEASE_NAME", "the scene name, ISO or disc name"),
+        ("RELEASE_GROUP", "group of the release"),
+        ("SOURCE_RELEASE_GROUP", "group of the ISO it was ripped from, Own disc"),
+        ("DISC_TITLE", "title on the disc"),
+        ("DISC_COUNTRY", "GBR, DEU, USA..."),
+        ("SOURCE", "BDRemux, WEB-DL, DVDRemux..."),
+        ("VIDEO_CODEC", "AVC, HEVC, AV1..."),
+        ("HDR_FORMAT", "DV HDR10, HDR10+..."),
+        ("DV_PROFILE", "7 FEL, 8.1..."),
+        ("EDITION", "Director's Cut, Extended..."),
+        ("LABEL", "release label: Criterion, Arrow..."),
+        ("ORIGINAL_LANGUAGE", "English, French..."),
+        ("ABSOLUTE_EPISODE", "absolute episode number (anime)"),
+        ("QUALITY", "Radarr/Sonarr quality"),
+        ("IMPORTED", "first import date"),
+        ("RIPPED_WITH", "Ripparr version and playlist")
+    ];
+
+    // The usual tags first, in their order (with the file's value, or empty), then the file's
+    // other tags in file order.
+    private List<TagEdit> BuildTags()
+    {
+        var fileTags = _file.Snapshot.GlobalTags;
+        var tags = new List<TagEdit>();
+        foreach (var (name, hint) in DefaultTags)
+        {
+            var own = fileTags.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
+            tags.Add(own == null
+                ? new TagEdit(name, null) { IsSlot = true, Hint = hint }
+                : new TagEdit(own.Name, own.Value) { Hint = hint });
+        }
+
+        tags.AddRange(fileTags
+            .Where(t => !DefaultTags.Any(d => string.Equals(d.Name, t.Name, StringComparison.OrdinalIgnoreCase)))
+            .Select(t => new TagEdit(t.Name, t.Value)));
+        return tags;
     }
 
     /// <summary>The file's global tags, editable. Only Matroska files can have them changed.</summary>
@@ -140,8 +207,11 @@ public class CustomConversionEditor
 
     public void ResetTags()
     {
-        Tags = _file.Snapshot.GlobalTags.Select(t => new TagEdit(t.Name, t.Value)).ToList();
+        Tags = BuildTags();
     }
+
+    /// <summary>The tags the file has now.</summary>
+    public int FileTagCount => _file.Snapshot.GlobalTags.Count;
 
     /// <summary>
     /// The global tag a release label (Criterion, Arrow...) is written to, as in Ripparr: the standard
@@ -159,7 +229,7 @@ public class CustomConversionEditor
     /// </summary>
     public string ReleaseLabel
     {
-        get => (Tags.FirstOrDefault(t => !t.Removed && t.Name.Trim() == ReleaseLabelTag)
+        get => (Tags.FirstOrDefault(t => !t.Removed && !t.IsEmptySlot && t.Name.Trim() == ReleaseLabelTag)
                 ?? Tags.FirstOrDefault(t => !t.Removed && t.Name.Trim() == OldReleaseLabelTag))?.Value ?? "";
         set
         {
@@ -189,7 +259,11 @@ public class CustomConversionEditor
 
             if (text.Length == 0)
             {
-                if (tag.IsNew)
+                if (tag.IsSlot)
+                {
+                    tag.Value = "";
+                }
+                else if (tag.IsNew)
                 {
                     Tags.Remove(tag);
                 }
@@ -225,6 +299,12 @@ public class CustomConversionEditor
         foreach (var tag in Tags)
         {
             var saved = backup.FirstOrDefault(b => b.Name == tag.Name);
+            if (tag.IsSlot)
+            {
+                tag.Value = saved?.Value ?? "";
+                continue;
+            }
+
             tag.Removed = saved == null;
             tag.Value = saved?.Value ?? tag.Value;
         }
@@ -240,7 +320,7 @@ public class CustomConversionEditor
     {
         get
         {
-            var kept = Tags.Where(t => !t.Removed).ToList();
+            var kept = Tags.Where(t => !t.Removed && !t.IsEmptySlot).ToList();
             if (kept.Any(t => string.IsNullOrWhiteSpace(t.Name)))
             {
                 return "Every tag needs a name.";
@@ -383,6 +463,13 @@ public class CustomConversionEditor
             editable.RefineLanguageFromName();
         }
 
+        // The profile's file rules: "Remove chapters" and "Clear the file title".
+        KeepChapters = target.HasChapters != false;
+        if (target.Title == "")
+        {
+            FileTitle = "";
+        }
+
         TakeProfileOrder(target);
     }
 
@@ -510,7 +597,11 @@ public class CustomConversionEditor
             plan.Title = title;
         }
 
-        if (CanRenameChapters && Chapters.Any(c => c.IsChanged))
+        if (!KeepChapters && HasChapters)
+        {
+            plan.HasChapters = false;
+        }
+        else if (CanRenameChapters && Chapters.Any(c => c.IsChanged))
         {
             plan.Chapters = Chapters
                 .Select(c => new ChapterInfo { StartMs = c.StartMs, Title = c.IsChanged ? c.Title.Trim() : null })
@@ -520,7 +611,7 @@ public class CustomConversionEditor
         if (CanEditTags && TagsChanged && TagProblem == null)
         {
             plan.GlobalTags = Tags
-                .Where(t => !t.Removed)
+                .Where(t => !t.Removed && !t.IsEmptySlot)
                 .Select(t => new FileTag { Name = t.Name.Trim(), Value = t.Value })
                 .ToList();
         }

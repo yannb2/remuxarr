@@ -202,19 +202,49 @@ public class GlobalTagTests
     {
         var editor = new CustomConversionEditor(TaggedFile());
 
-        Assert.AreEqual(2, editor.Tags.Count);
+        Assert.AreEqual(2, editor.Tags.Count(t => !t.IsSlot));
         Assert.IsNull(editor.Build().GlobalTags);
+    }
+
+    [TestMethod]
+    public void Editor_ListsTheUsualTags_AndWritesOnlyTheFilledOnes()
+    {
+        var editor = new CustomConversionEditor(TaggedFile());
+
+        CollectionAssert.AreEqual(CustomConversionEditor.DefaultTags.Select(d => d.Name).ToArray(),
+            editor.Tags.Select(t => t.Name).ToArray(), "the usual tags, in order, the file's own values filled in");
+        Assert.AreEqual("movie/603", editor.Tags.Single(t => t.Name == "TMDB").Value);
+        var edition = editor.Tags.Single(t => t.Name == "EDITION");
+        Assert.IsTrue(edition.IsEmptySlot);
+        Assert.IsNull(editor.Build().GlobalTags, "empty slots change nothing");
+
+        edition.Value = "Extended";
+
+        CollectionAssert.AreEqual(new[] { "TMDB=movie/603", "IMDB=tt0133093", "EDITION=Extended" },
+            editor.Build().GlobalTags!.Select(t => $"{t.Name}={t.Value}").ToArray());
+    }
+
+    [TestMethod]
+    public void Editor_TheFilesOtherTagsFollowTheUsualOnes()
+    {
+        var file = TaggedFile();
+        file.Snapshot.GlobalTags = Tags(("ENCODER_SETTINGS", "crf 18"), ("imdb", "tt0133093"));
+        var editor = new CustomConversionEditor(file);
+
+        Assert.AreEqual("tt0133093", editor.Tags.Single(t => t.Name == "imdb").Value, "matched whatever the case");
+        Assert.AreEqual("ENCODER_SETTINGS", editor.Tags.Last().Name);
+        Assert.AreEqual(CustomConversionEditor.DefaultTags.Count + 1, editor.Tags.Count);
     }
 
     [TestMethod]
     public void Editor_ChangedRemovedAndAddedTagsReachThePlan()
     {
         var editor = new CustomConversionEditor(TaggedFile());
-        editor.Tags[0].Value = "movie/604";
-        editor.Tags[1].Removed = true;
+        editor.Tags.Single(t => t.Name == "TMDB").Value = "movie/604";
+        editor.Tags.Single(t => t.Name == "IMDB").Removed = true;
         editor.AddTag();
-        editor.Tags[2].Name = " EDITION ";
-        editor.Tags[2].Value = "Extended";
+        editor.Tags[^1].Name = " EDITION ";
+        editor.Tags[^1].Value = "Extended";
 
         var plan = editor.Build();
 
@@ -230,12 +260,12 @@ public class GlobalTagTests
     {
         var editor = new CustomConversionEditor(TaggedFile());
         editor.AddTag();
-        editor.Tags[2].Name = "title";
+        editor.Tags[^1].Name = "title";
 
         Assert.IsNotNull(editor.TagProblem);
         Assert.IsNull(editor.Build().GlobalTags);
 
-        editor.Tags[2].Name = "TMDB";
+        editor.Tags[^1].Name = "TMDB";
         StringAssert.Contains(editor.TagProblem, "twice");
     }
 

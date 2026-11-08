@@ -247,6 +247,47 @@ public class CustomConversionEditorTests
         Assert.AreEqual("", editor.DescriptionOf(editor.Tracks.Single(t => t.Type == MediaTrackType.Audio)));
     }
 
+    // --- Chapters ---
+
+    [TestMethod]
+    public void ApplyProfile_RemoveChapters_RemovesThem_UntilReset()
+    {
+        var file = MakeFile("English", Video(0), Audio(1, "English"));
+        file.Snapshot.ContainerType = "Matroska";
+        file.Snapshot.HasChapters = true;
+        file.Snapshot.Chapters = [new ChapterInfo { StartMs = 0, Title = "Opening" }];
+        var editor = new CustomConversionEditor(file);
+        Assert.IsTrue(editor.KeepChapters);
+        Assert.IsNull(editor.Build().HasChapters);
+
+        editor.ApplyProfile(MakeProfile(removeChapters: true));
+
+        Assert.IsFalse(editor.KeepChapters);
+        Assert.IsFalse(editor.Build().HasChapters);
+
+        // A rename does not bring them back: removing wins.
+        editor.Chapters[0].Title = "Prologue";
+        Assert.IsFalse(editor.Build().HasChapters);
+        Assert.IsNull(editor.Build().Chapters);
+
+        editor.ResetChapters();
+        Assert.IsTrue(editor.KeepChapters);
+        Assert.IsNull(editor.Build().HasChapters);
+    }
+
+    [TestMethod]
+    public void ApplyProfile_ClearFileTitle_EmptiesTheTitle()
+    {
+        var file = MakeFile("English", Video(0), Audio(1, "English"));
+        file.Snapshot.Title = "Some.Release.Name";
+        var editor = new CustomConversionEditor(file);
+
+        editor.ApplyProfile(MakeProfile(clearFileTitle: true));
+
+        Assert.AreEqual("", editor.FileTitle);
+        Assert.AreEqual("", editor.Build().Title);
+    }
+
     private static TrackSettings Standardizing(params string[] languages)
     {
         return new TrackSettings

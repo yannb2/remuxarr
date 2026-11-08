@@ -80,7 +80,9 @@ public class TrackChecksTests
         Assert.AreEqual("Criterion", tag.Value);
 
         editor.ReleaseLabel = "";
-        Assert.IsEmpty(editor.Tags, "a label typed and cleared leaves nothing");
+        Assert.IsNull(editor.Build().GlobalTags, "a label typed and cleared leaves nothing");
+        Assert.AreEqual("", editor.Tags.Single(t => t.Name == CustomConversionEditor.ReleaseLabelTag).Value,
+            "the LABEL row stays listed, empty");
     }
 
     [TestMethod]

@@ -72,7 +72,7 @@
     <div class="border rounded p-4 mb-4">
         <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
             <i class="bi bi-collection text-primary"></i>
-            <h5 class="mb-0">Tracks</h5>
+            <h5 class="mb-0">Tracks, chapters and tags</h5>
             @if (_editorProfile != null)
             {
                 <span class="badge bg-info-subtle text-info-emphasis small">
@@ -82,9 +82,10 @@
         </div>
         <p class="text-muted small mb-3">
             What the profile would write, ready to change: tick or untick tracks, move them with the arrows, and edit
-            languages, names and flags. <strong>Now:</strong> under a track is how the file has it today.
-            <strong>Queue these tracks</strong> converts exactly what is shown; <strong>Add to Queue</strong> above
-            runs the profile as it is. Changing the profile above fills the table again.
+            languages, names and flags; keep, remove or rename the chapters; fill in, change or remove global tags.
+            <strong>Now:</strong> under a field is how the file has it today. <strong>Queue these changes</strong>
+            converts exactly what is shown; <strong>Add to Queue</strong> above runs the profile as it is. Changing the
+            profile above fills everything again.
         </p>
         @if (_editor == null || File.Snapshot.Tracks.Count == 0)
         {
@@ -93,7 +94,7 @@
         else
         {
             <div class="table-responsive">
-                <CustomConversionPanel @key="_editor" Editor="_editor" File="File" ShowCurrent="true" ShowProfileBar="false">
+                <CustomConversionPanel @key="_editor" Editor="_editor" File="File" ShowCurrent="true" ShowProfileBar="false" Open="true">
                     <LeftActions>
                         <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="FillEditor">
                             <i class="bi bi-arrow-counterclockwise me-1"></i>Back to the profile
@@ -103,7 +104,7 @@
                         <button class="btn btn-primary" @onclick="QueueEditor"
                                 disabled="@(IsAddToQueueDisabled || !_editor.HasAudio)"
                                 title="@(IsAddToQueueDisabled ? "A conversion is already queued or running for this file" : null)">
-                            <i class="bi bi-check-lg me-2"></i>Queue these tracks
+                            <i class="bi bi-check-lg me-2"></i>Queue these changes
                         </button>
                     </Actions>
                 </CustomConversionPanel>
@@ -113,31 +114,31 @@
 
     <div class="row g-4">
         <!-- File Information -->
-        <div class="col-md-6 d-flex flex-column gap-4">
+        <div class="col-12 d-flex flex-column gap-4">
             <div class="border rounded p-4">
                 <div class="d-flex align-items-center mb-3">
                     <i class="bi bi-file-earmark text-primary me-2"></i>
                     <h5 class="mb-0">File Info</h5>
                 </div>
 
-                <div class="list-group list-group-flush bg-transparent">
-                    <div class="list-group-item bg-transparent px-0">
+                <div class="row row-cols-1 row-cols-md-2 g-3">
+                    <div class="col">
                         <div class="text-muted small mb-1">Filename</div>
                         <code class="small">@Path.GetFileName(File.Path)</code>
                     </div>
-                    <div class="list-group-item bg-transparent px-0">
+                    <div class="col">
                         <div class="text-muted small mb-1">Directory</div>
                         <span class="small">@Path.GetDirectoryName(File.Path)</span>
                     </div>
-                    <div class="list-group-item bg-transparent px-0">
+                    <div class="col">
                         <div class="text-muted small mb-1">Created</div>
                         <TimeAgo DateTime="File.FileCreationTime"/>
                     </div>
-                    <div class="list-group-item bg-transparent px-0">
+                    <div class="col">
                         <div class="text-muted small mb-1">Original Language</div>
                         <span>@(string.IsNullOrEmpty(File.OriginalLanguage) ? "-" : File.OriginalLanguage)</span>
                     </div>
-                    <div class="list-group-item bg-transparent px-0">
+                    <div class="col">
                         <div class="text-muted small mb-1">Assigned profile</div>
                         @if (File.Profile != null)
                         {
@@ -149,11 +150,11 @@
                             <span>-</span>
                         }
                     </div>
-                    <div class="list-group-item bg-transparent px-0">
+                    <div class="col">
                         <div class="text-muted small mb-1">Size</div>
                         <FileSize SizeInBytes="File.Size"/>
                     </div>
-                    <div class="list-group-item bg-transparent px-0">
+                    <div class="col">
                         <div class="text-muted small mb-1">Added</div>
                         <TimeAgo DateTime="File.CreatedDate"/>
                     </div>
@@ -161,113 +162,6 @@
             </div>
 
         </div>
-
-        <!-- Global Tags -->
-        <div class="col-md-6 d-flex flex-column gap-4">
-            <div class="border rounded p-4">
-                @{
-                    var tags = File.Snapshot.GlobalTags;
-                    var backedUp = File.OriginalTrackNames?.GlobalTags ?? [];
-                    var fromBackup = tags.Count == 0 && backedUp.Count > 0;
-                    if (fromBackup)
-                    {
-                        tags = backedUp;
-                    }
-                }
-                <div class="d-flex align-items-center mb-3">
-                    <i class="bi bi-tags text-primary me-2"></i>
-                    <h5 class="mb-0">Global Tags</h5>
-                    @if (tags.Count > 0)
-                    {
-                        <span class="badge text-bg-light border ms-2">@tags.Count</span>
-                    }
-                </div>
-                @if (tags.Count == 0)
-                {
-                    <span class="text-muted small">None. If the file has tags, rescan it to list them.</span>
-                }
-                else
-                {
-                    if (fromBackup)
-                    {
-                        <div class="text-warning small mb-1">
-                            <i class="bi bi-exclamation-triangle me-1"></i>The file has none now; these are from the backup.
-                        </div>
-                    }
-                    <table class="table table-sm mb-0 small">
-                        <tbody>
-                        @foreach (var tag in tags)
-                        {
-                            <tr>
-                                <td class="text-muted text-nowrap pe-3" style="width: 1%;">@tag.Name</td>
-                                <td class="text-break">@tag.Value</td>
-                            </tr>
-                        }
-                        </tbody>
-                    </table>
-                }
-            </div>
-        </div>
-
-        @if (File.Snapshot.HasChapters)
-        {
-            <div class="col-12">
-                <details class="border rounded p-4 mux-collapsible">
-                    <summary class="d-flex align-items-center">
-                        <i class="bi bi-bookmarks text-primary me-2"></i>
-                        <h5 class="mb-0">Chapters</h5>
-                        @if (File.Snapshot.Chapters.Count > 0)
-                        {
-                            <span class="badge text-bg-light border ms-2">@File.Snapshot.Chapters.Count</span>
-                        }
-                        <i class="bi bi-chevron-down ms-auto mux-collapsible-chevron"></i>
-                    </summary>
-                    <div class="mt-3">
-                    @if (File.Snapshot.Chapters.Count == 0)
-                    {
-                        <span class="text-muted">This file has chapters. Rescan it to list them.</span>
-                    }
-                    else
-                    {
-                        <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
-                            <table class="table table-sm mb-0">
-                                <thead>
-                                <tr>
-                                    <th style="width: 35px;">#</th>
-                                    <th style="width: 110px;">Start</th>
-                                    <th>Title</th>
-                                    @if (HasRenamedChapters)
-                                    {
-                                        <th>Original title</th>
-                                    }
-                                </tr>
-                                </thead>
-                                <tbody>
-                                @for (var i = 0; i < File.Snapshot.Chapters.Count; i++)
-                                {
-                                    var chapter = File.Snapshot.Chapters[i];
-                                    <tr>
-                                        <td>@(i + 1)</td>
-                                        <td class="text-muted">@ChapterInfo.FormatTime(chapter.StartMs)</td>
-                                        <td class="text-break">@(chapter.Title ?? "(no title)")</td>
-                                        @if (HasRenamedChapters)
-                                        {
-                                            var original = File.OriginalTrackNames!.OriginalChapterTitle(chapter.StartMs);
-                                            <td class="text-break text-muted small">
-                                                @(original == chapter.Title ? "(unchanged)" : original ?? "(no title)")
-                                            </td>
-                                        }
-                                    </tr>
-                                }
-                                </tbody>
-                            </table>
-                        </div>
-                        <small class="text-muted d-block mt-2">Rename them in the Tracks table at the top.</small>
-                    }
-                    </div>
-                </details>
-            </div>
-        }
 
         @if (File.Snapshot.Tracks.Any(t => t.Type is MediaTrackType.Audio or MediaTrackType.Subtitles))
         {
@@ -344,10 +238,6 @@
     private bool _isSubmitting;
 
     // The backup's chapter titles only earn a column when one of them differs from now.
-    private bool HasRenamedChapters => File?.OriginalTrackNames is { Chapters.Count: > 0 } backup
-                                       && File.Snapshot.Chapters.Any(c =>
-                                           backup.OriginalChapterTitle(c.StartMs) is { } original
-                                           && original != c.Title);
 
     private bool IsAddToQueueDisabled =>
         _isSubmitting || File?.Conversions.Any(c =>
@@ -469,7 +359,7 @@
     private void UsePresets(IReadOnlyDictionary<int, TrackFlagPreset> presets)
     {
         _editor?.ApplyPresets(presets);
-        ToastService.ShowInfo("Set in the Tracks table at the top. Check it, then Queue these tracks.");
+        ToastService.ShowInfo("Set in the Tracks table at the top. Check it, then Queue these changes.");
     }
 
     private async Task QueueEditor()
