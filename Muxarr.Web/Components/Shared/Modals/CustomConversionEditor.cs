@@ -382,6 +382,31 @@ public class CustomConversionEditor
             // the next scan will, or the dropdown contradicts the name beside it.
             editable.RefineLanguageFromName();
         }
+
+        TakeProfileOrder(target);
+    }
+
+    // The profile's track order (language priority, custom rules...) for the tracks it
+    // keeps; within each type the ones it drops follow, in file order, so they stay
+    // under their own heading.
+    private void TakeProfileOrder(ConversionPlan target)
+    {
+        var rank = target.Tracks.Select((t, i) => (t.Index, i)).ToDictionary(x => x.Index, x => x.i);
+        var types = target.Tracks.Where(t => t.Type != MediaTrackType.Video).Select(t => t.Type)
+            .Concat(_tracks.Where(t => t.Type != MediaTrackType.Video).Select(t => t.Type))
+            .Distinct()
+            .ToList();
+
+        var ordered = _tracks.Where(t => t.Type == MediaTrackType.Video).ToList();
+        foreach (var type in types)
+        {
+            var ofType = _tracks.Where(t => t.Type == type).ToList();
+            ordered.AddRange(ofType.Where(t => _selected.Contains(t.Index)).OrderBy(t => rank.GetValueOrDefault(t.Index, int.MaxValue)));
+            ordered.AddRange(ofType.Where(t => !_selected.Contains(t.Index)));
+        }
+
+        _tracks.Clear();
+        _tracks.AddRange(ordered);
     }
 
     /// <summary>

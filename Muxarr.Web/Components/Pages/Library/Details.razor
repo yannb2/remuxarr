@@ -46,11 +46,6 @@
                         }
                     </select>
                 </div>
-                <div class="form-check form-switch mb-0 ms-auto">
-                    <input type="checkbox" class="form-check-input" id="previewToggle"
-                           checked="@_showPreview" @onchange="() => _showPreview = !_showPreview"/>
-                    <label class="form-check-label small text-muted" for="previewToggle">Preview changes</label>
-                </div>
             </div>
 
             @if (isOverride)
@@ -67,13 +62,53 @@
                     title="@(IsAddToQueueDisabled ? "A conversion is already queued or running for this file" : null)">
                 <i class="bi bi-plus-lg me-2"></i>Add to Queue
             </button>
-            <button class="btn btn-outline-primary" @onclick="CustomConversion">
-                <i class="bi bi-sliders me-2"></i>Custom Conversion
-            </button>
             <button class="btn btn-outline-secondary" @onclick="AnalyzeFile">
                 <i class="bi bi-search me-2"></i>Analyze File
             </button>
         </div>
+    </div>
+
+    <!-- Tracks: the custom conversion inline, filled from the profile -->
+    <div class="border rounded p-4 mb-4">
+        <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
+            <i class="bi bi-collection text-primary"></i>
+            <h5 class="mb-0">Tracks</h5>
+            @if (_editorProfile != null)
+            {
+                <span class="badge bg-info-subtle text-info-emphasis small">
+                    <i class="bi bi-magic me-1"></i>Filled from @_editorProfile.Name
+                </span>
+            }
+        </div>
+        <p class="text-muted small mb-3">
+            What the profile would write, ready to change: tick or untick tracks, move them with the arrows, and edit
+            languages, names and flags. <strong>Now:</strong> under a track is how the file has it today.
+            <strong>Queue these tracks</strong> converts exactly what is shown; <strong>Add to Queue</strong> above
+            runs the profile as it is. Changing the profile above fills the table again.
+        </p>
+        @if (_editor == null || File.Snapshot.Tracks.Count == 0)
+        {
+            <span class="text-muted">No tracks found.</span>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <CustomConversionPanel @key="_editor" Editor="_editor" File="File" ShowCurrent="true" ShowProfileBar="false">
+                    <LeftActions>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="FillEditor">
+                            <i class="bi bi-arrow-counterclockwise me-1"></i>Back to the profile
+                        </button>
+                    </LeftActions>
+                    <Actions>
+                        <button class="btn btn-primary" @onclick="QueueEditor"
+                                disabled="@(IsAddToQueueDisabled || !_editor.HasAudio)"
+                                title="@(IsAddToQueueDisabled ? "A conversion is already queued or running for this file" : null)">
+                            <i class="bi bi-check-lg me-2"></i>Queue these tracks
+                        </button>
+                    </Actions>
+                </CustomConversionPanel>
+            </div>
+        }
     </div>
 
     <div class="row g-4">
@@ -125,7 +160,10 @@
                 </div>
             </div>
 
-            <!-- Global Tags -->
+        </div>
+
+        <!-- Global Tags -->
+        <div class="col-md-6 d-flex flex-column gap-4">
             <div class="border rounded p-4">
                 @{
                     var tags = File.Snapshot.GlobalTags;
@@ -168,39 +206,6 @@
                         </tbody>
                     </table>
                 }
-            </div>
-        </div>
-
-        <!-- Media Information -->
-        <div class="col-md-6">
-            <div class="border rounded p-4">
-                <div class="d-flex align-items-center mb-3">
-                    <i class="bi bi-collection text-primary me-2"></i>
-                    <h5 class="mb-0">Media Tracks</h5>
-                    @if (_showPreview && _selectedProfile != null)
-                    {
-                        <span class="badge bg-info-subtle text-info-emphasis ms-2 small">
-                            <i class="bi bi-eye me-1"></i>Preview: @_selectedProfile.Name
-                        </span>
-                    }
-                </div>
-                @if (_showPreview && Preview != null)
-                {
-                }
-                <div class="table-responsive">
-                    @if (File.Snapshot.Tracks.Any())
-                    {
-                        <MediaTrackDetailTable Tracks="File.Snapshot.Tracks"
-                                               PreviewTracks="_showPreview ? Preview?.Tracks : null"
-                                               Current="File.Snapshot"
-                                               Plan="_showPreview ? Preview : null"
-                                               OriginalLanguage="@File.OriginalLanguage"/>
-                    }
-                    else
-                    {
-                        <span>No tracks found!</span>
-                    }
-                </div>
             </div>
         </div>
 
@@ -257,7 +262,7 @@
                                 </tbody>
                             </table>
                         </div>
-                        <small class="text-muted d-block mt-2">Rename them in a custom conversion.</small>
+                        <small class="text-muted d-block mt-2">Rename them in the Tracks table at the top.</small>
                     }
                     </div>
                 </details>
@@ -267,7 +272,7 @@
         @if (File.Snapshot.Tracks.Any(t => t.Type is MediaTrackType.Audio or MediaTrackType.Subtitles))
         {
             <div class="col-12">
-                <TrackChecks File="File" OnUse="p => CustomConversion(p)"/>
+                <TrackChecks File="File" OnUse="UsePresets"/>
             </div>
         }
 
@@ -330,9 +335,10 @@
     [Parameter] public int Id { get; set; }
 
     protected MediaFile? File { get; set; }
-    protected ConversionPlan? Preview { get; set; }
+    private CustomConversionEditor? _editor;
+    private Profile? _editorProfile;
+    private int? _editorSnapshotId;
     private List<Profile> _profiles = new();
-    private bool _showPreview = true;
     private int _selectedProfileId;
     private Profile? _selectedProfile;
     private bool _isSubmitting;
@@ -372,7 +378,11 @@
         _profiles = await context.Profiles.OrderBy(p => p.Name).ToListAsync();
         _selectedProfileId = File.ProfileId;
         _selectedProfile = _profiles.FirstOrDefault(p => p.Id == _selectedProfileId);
-        Preview = File.BuildTargetFromProfile(_selectedProfile);
+        // A reload for a conversion elsewhere keeps the edits; a new snapshot (the file changed) starts over.
+        if (_editor == null || _editorSnapshotId != File.SnapshotId)
+        {
+            FillEditor();
+        }
     }
 
     private void OnConverterStateChanged(ConverterProgressEvent e)
@@ -438,24 +448,53 @@
         }
     }
 
-    private Task CustomConversion() => CustomConversion(null);
-
-    private async Task CustomConversion(IReadOnlyDictionary<int, TrackFlagPreset>? presets)
+    // The editor starts from the file, then takes the selected profile's selection, names, flags and order.
+    private void FillEditor()
     {
-        var customTarget = await ModalService.ShowCustomConversion(File!, _profiles, _selectedProfile, presets);
-        if (customTarget == null)
+        if (File == null)
         {
             return;
         }
 
-        if (!await MediaConverter.AddMediaToQueue(File!, customTarget))
+        _editor = new CustomConversionEditor(File);
+        _editorProfile = _selectedProfile;
+        _editorSnapshotId = File.SnapshotId;
+        if (_selectedProfile != null)
         {
-            ToastService.ShowError($"'{File!.GetName()}' is not accessible. The file or its mount may be offline.");
+            _editor.ApplyProfile(_selectedProfile);
+        }
+    }
+
+    // Track checks' "Use this": the flags go into the table, to check and queue from there.
+    private void UsePresets(IReadOnlyDictionary<int, TrackFlagPreset> presets)
+    {
+        _editor?.ApplyPresets(presets);
+        ToastService.ShowInfo("Set in the Tracks table at the top. Check it, then Queue these tracks.");
+    }
+
+    private async Task QueueEditor()
+    {
+        if (_editor == null || !_editor.HasAudio || _isSubmitting)
+        {
             return;
         }
 
-        await LoadFile();
-        ToastService.ShowSuccess($"Custom conversion for {File!.GetName()} was added to queue!");
+        _isSubmitting = true;
+        try
+        {
+            if (!await MediaConverter.AddMediaToQueue(File!, _editor.Build()))
+            {
+                ToastService.ShowError($"'{File!.GetName()}' is not accessible. The file or its mount may be offline.");
+                return;
+            }
+
+            await LoadFile();
+            ToastService.ShowSuccess($"Custom conversion for {File!.GetName()} was added to queue!");
+        }
+        finally
+        {
+            _isSubmitting = false;
+        }
     }
 
     private void OnPreviewProfileChanged(ChangeEventArgs e)
@@ -464,7 +503,7 @@
         {
             _selectedProfileId = id;
             _selectedProfile = _profiles.FirstOrDefault(p => p.Id == id);
-            Preview = File!.BuildTargetFromProfile(_selectedProfile);
+            FillEditor();
         }
     }
 

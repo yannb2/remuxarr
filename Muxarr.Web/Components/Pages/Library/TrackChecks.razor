@@ -61,9 +61,9 @@
                             {
                                 <span class="badge text-bg-warning ms-1"
                                       title="A stereo track after the multichannel one in the same language: a commentary or an audio description. The file does not say which; listen to it.">Commentary or AD?</span>
-                                <button class="btn btn-sm btn-outline-secondary py-0 px-1 ms-1" title="Open Custom conversion with this track marked as a commentary"
+                                <button class="btn btn-sm btn-outline-secondary py-0 px-1 ms-1" title="Mark this track as a commentary in the Tracks table"
                                         @onclick="() => Use(track, new TrackFlagPreset(Commentary: true))">Commentary</button>
-                                <button class="btn btn-sm btn-outline-secondary py-0 px-1 ms-1" title="Open Custom conversion with this track marked as an audio description"
+                                <button class="btn btn-sm btn-outline-secondary py-0 px-1 ms-1" title="Mark this track as an audio description in the Tracks table"
                                         @onclick="() => Use(track, new TrackFlagPreset(VisualImpaired: true))">AD</button>
                             }
                         </td>
@@ -167,9 +167,9 @@
                                     <div class="text-muted d-flex align-items-center flex-wrap gap-2 mt-1">
                                         <span><i class="bi bi-info-circle me-1"></i>The track's flags say otherwise.</span>
                                         <button class="btn btn-sm btn-outline-primary py-0"
-                                                title="Open Custom conversion with the SDH and commentary flags set as the check says"
+                                                title="Set the SDH and commentary flags in the Tracks table as the check says"
                                                 @onclick="() => Use(track, new TrackFlagPreset(HearingImpaired: guess.Sdh, Commentary: guess.Commentary))">
-                                            Use this in Custom conversion
+                                            Use this in Tracks
                                         </button>
                                     </div>
                                 }

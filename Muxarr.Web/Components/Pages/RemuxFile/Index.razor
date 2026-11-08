@@ -3,6 +3,7 @@
 @using Muxarr.Core.Language
 @using Muxarr.Web.Components.Pages.Conversions
 @using Muxarr.Web.Components.Pages.Library
+@using Muxarr.Web.Components.Shared.Modals
 @implements IDisposable
 
 @* Fork: remux any file from outside the library (/downloads, /mnt/pc) with a profile or a custom
@@ -163,38 +164,47 @@
                     <button class="btn btn-primary" @onclick="QueueWithProfile" disabled="@(!CanQueue)">
                         <i class="bi bi-plus-lg me-2"></i>Remux with @_profile?.Name
                     </button>
-                    <button class="btn btn-outline-primary" @onclick="QueueCustom" disabled="@(!CanQueue)">
-                        <i class="bi bi-sliders me-2"></i>Pick tracks
-                    </button>
                 </div>
             }
         </div>
 
         @* 3. Tracks *@
         <div class="border rounded p-3 mb-3">
-            <div class="d-flex align-items-center mb-2">
+            <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
                 <h5 class="mb-0"><span class="badge text-bg-secondary me-2">3</span>Tracks</h5>
-                @if (_preview != null && _profile != null)
+                @if (_editor != null && _profile != null)
                 {
-                    <span class="badge bg-info-subtle text-info-emphasis ms-2 small">
-                        <i class="bi bi-eye me-1"></i>Preview: @_profile.Name
+                    <span class="badge bg-info-subtle text-info-emphasis small">
+                        <i class="bi bi-magic me-1"></i>Filled from @_profile.Name
                     </span>
                 }
             </div>
-            <div class="table-responsive">
-                @if (_file.Snapshot.Tracks.Count > 0)
-                {
-                    <MediaTrackDetailTable Tracks="_file.Snapshot.Tracks"
-                                           PreviewTracks="_preview?.Tracks"
-                                           Current="_file.Snapshot"
-                                           Plan="_preview"
-                                           OriginalLanguage="@_originalLanguage"/>
-                }
-                else
-                {
-                    <span class="text-muted small">No tracks found.</span>
-                }
-            </div>
+            <p class="text-muted small mb-3">
+                What the profile would write, ready to change: tick or untick tracks, move them with the arrows, and
+                edit languages, names and flags. <strong>Now:</strong> under a track is how the file has it.
+                Changing the profile or the original language fills the table again.
+            </p>
+            @if (_editor == null || _file.Snapshot.Tracks.Count == 0)
+            {
+                <span class="text-muted small">No tracks found.</span>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <CustomConversionPanel @key="_editor" Editor="_editor" File="_file" ShowCurrent="true" ShowProfileBar="false">
+                        <LeftActions>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="RefreshPreview">
+                                <i class="bi bi-arrow-counterclockwise me-1"></i>Back to the profile
+                            </button>
+                        </LeftActions>
+                        <Actions>
+                            <button class="btn btn-primary" @onclick="QueueEditor" disabled="@(!CanQueue || !_editor.HasAudio)">
+                                <i class="bi bi-check-lg me-2"></i>Remux with these tracks
+                            </button>
+                        </Actions>
+                    </CustomConversionPanel>
+                </div>
+            }
         </div>
     }
 
@@ -243,7 +253,6 @@
     [Inject] public required IDbContextFactory<AppDbContext> ContextFactory { get; set; }
     [Inject] public required MediaConverterService MediaConverter { get; set; }
     [Inject] public required IToastService ToastService { get; set; }
-    [Inject] public required IModalService ModalService { get; set; }
 
     private sealed record FileEntry(string Path, long Size);
 
@@ -272,7 +281,7 @@
     private List<Profile> _profiles = [];
     private Profile? _profile;
     private string? _originalLanguage;
-    private ConversionPlan? _preview;
+    private CustomConversionEditor? _editor;
     private string _output = "";
     private bool _outputExists;
     private bool _busy;
@@ -317,8 +326,15 @@
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            return $"Remuxarr cannot write to {folder}, so remuxes would fail. Mount it read-write in the compose " +
-                   $"file (for example - {folder}:{folder}) and recreate the container. The folder is set in Settings > Processing.";
+            // Read-only: the folder is not mounted read-write (or does not exist on the host, so the
+            // read-only parent is what is tested). Denied: mounted, but owned by someone else.
+            var readOnly = e.Message.Contains("Read-only", StringComparison.OrdinalIgnoreCase);
+            var fix = readOnly
+                ? $"Mount it read-write in the compose file (- {folder}:{folder}), make sure the folder exists on the host, and recreate the container."
+                : $"It is mounted but Remuxarr's user (PUID {Environment.GetEnvironmentVariable("PUID") ?? "?"}) may not write there: " +
+                  "give the folder to that user (chown) or make it group-writable.";
+            return $"Remuxarr cannot write to {folder}, so remuxes would fail. {fix} " +
+                   $"Tested {existing}: {e.Message} The folder is set in Settings > Processing.";
         }
     }
 
@@ -471,7 +487,7 @@
     private void ClearFile()
     {
         _file = null;
-        _preview = null;
+        _editor = null;
         if (_browse != null)
         {
             Browse(_browse);
@@ -504,7 +520,12 @@
         _file.OriginalLanguage = _originalLanguage;
         _file.Profile = _profile;
         _file.ProfileId = _profile?.Id ?? 0;
-        _preview = _profile == null ? null : _file.BuildTargetFromProfile(_profile);
+        // A fresh copy of the file's tracks with the profile laid over it.
+        _editor = new CustomConversionEditor(_file);
+        if (_profile != null)
+        {
+            _editor.ApplyProfile(_profile);
+        }
     }
 
     private void RefreshOutput()
@@ -520,17 +541,11 @@
 
     private Task QueueWithProfile() => Queue(null);
 
-    private async Task QueueCustom()
+    private async Task QueueEditor()
     {
-        if (_file == null)
+        if (_editor is { HasAudio: true })
         {
-            return;
-        }
-
-        var plan = await ModalService.ShowCustomConversion(_file, _profiles, _profile);
-        if (plan != null)
-        {
-            await Queue(plan);
+            await Queue(_editor.Build());
         }
     }
 

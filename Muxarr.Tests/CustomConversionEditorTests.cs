@@ -48,6 +48,31 @@ public class CustomConversionEditorTests
     }
 
     [TestMethod]
+    public void ApplyProfile_TakesTheProfileOrder_DroppedTracksFollowTheirType()
+    {
+        var audio = new TrackSettings
+        {
+            Enabled = true,
+            ReorderStrategy = TrackReorderStrategy.MatchLanguagePriority,
+            AllowedLanguages = [IsoLanguage.Find("Japanese"), IsoLanguage.Find("English")]
+        };
+        var profile = MakeProfile(audio: audio);
+        var file = MakeFile("Japanese", Video(0),
+            Audio(1, "English"),
+            Audio(2, "German"),
+            Audio(3, "Japanese"),
+            Sub(4, "English"));
+        file.Profile = profile;
+        var editor = new CustomConversionEditor(file);
+
+        editor.ApplyProfile(profile);
+
+        CollectionAssert.AreEqual(new[] { 0, 3, 1, 2, 4 }, editor.Tracks.Select(t => t.Index).ToArray());
+        Assert.IsFalse(editor.IsSelected(editor.Tracks[3]), "German is dropped and sits after the kept audio");
+        CollectionAssert.AreEqual(new[] { 0, 3, 1, 4 }, editor.Build().Tracks.Select(t => t.Index).ToArray());
+    }
+
+    [TestMethod]
     public void ApplyProfile_KeepsWhatTheProfileKeepsAndTakesItsNames()
     {
         var profile = MakeProfile(audio: Standardizing("English"), subtitle: Standardizing("English"));
