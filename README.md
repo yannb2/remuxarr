@@ -93,7 +93,7 @@ subtitle name, the same as Ripparr's disc page:
 - A commentary with nothing typed gets "Commentary", unless its template already says it
   (`{language} (Commentary) - {description} - {codec}`).
 
-### Tracks on the file page
+### Tracks, chapters and tags on the file page
 
 A file's page opens with its **Tracks** table: the custom conversion, inline and already filled with
 what the selected profile would write. Tracks it keeps are ticked, in its order (language priority or
@@ -101,10 +101,22 @@ custom rules), with its names, languages and flags; the ones it drops are untick
 type. Each row shows the codec, resolution and HDR or channels and Atmos, and the length, and
 **Now:** under a track says how the file has it today when the profile changes it.
 
-Tick or untick tracks, move them with the arrows, and change languages, names, descriptions and flags;
-the file title, chapter titles and global tags are below. **Queue these tracks** converts exactly what
-is shown. **Add to Queue** at the top still runs the profile as it is, worked out again when the file's
-turn comes. Picking another profile at the top, or **Back to the profile**, fills the table again.
+Tick or untick tracks, move them with the arrows, and change languages, names, descriptions and flags.
+Below the tracks, always open:
+
+- **Chapters**: every chapter with its number, start time and title (and the original title when the
+  track name backup has one). **Keep the chapters** follows the profile's "Remove chapters"; turn it off
+  to remove them all. Titles can be typed (MKV only), numbered "Chapter 1, 2, 3..." or put back from
+  the backup; **Now:** under a changed title says what the file has.
+- **Global tags**: the usual tags (the ones tag_release.py and Ripparr write: TMDB, IMDB, TVDB2,
+  RELEASE_NAME, RELEASE_GROUP, SOURCE_RELEASE_GROUP, DISC_TITLE, DISC_COUNTRY, SOURCE, VIDEO_CODEC,
+  HDR_FORMAT, DV_PROFILE, EDITION, LABEL, ORIGINAL_LANGUAGE, ABSOLUTE_EPISODE, QUALITY, IMPORTED,
+  RIPPED_WITH) are always listed, empty when the file doesn't have them; an empty one is not written.
+  The file's other tags follow, and **Add tag** adds any other. MKV only.
+
+The file title is at the top. **Queue these changes** converts exactly what is shown. **Add to Queue** at the top still runs the profile as it is, worked out again when the file's
+turn comes. Picking another profile at the top, or **Back to the profile**, fills everything again (the profile's
+"Remove chapters" and "Clear the file title" included).
 The Remux a file page uses the same table.
 
 ### Track checks
@@ -132,10 +144,10 @@ read. The image ships Tesseract with English, French, German, Spanish and Italia
 
 ### Release label and progress
 
-- Custom conversion has a **Release label** box (Criterion, Arrow...) that writes the standard Matroska
-  `LABEL` global tag ("the imprint on the disc"), as Ripparr does; Jellyfin shows it as "Release: ..."
-  through edition_tags.py. Files tagged before 1.1.2 have it in `DISTRIBUTED_BY`: the box shows it and
-  moves it to `LABEL` when you change it.
+- The release label (Criterion, Arrow...) is the `LABEL` row of the global tags, the standard Matroska
+  tag ("the imprint on the disc"), as Ripparr does; Jellyfin shows it as "Release: ..." through
+  edition_tags.py. Files tagged before 1.1.2 have it in `DISTRIBUTED_BY`, listed under the usual tags:
+  copy it to `LABEL` and remove it.
 - A running conversion shows two bars, as in Ripparr: the current step (remux, check, swap, rescan...)
   and the whole conversion.
 - The sidebar's Docs link opens this file, and the version links to the repository.
@@ -208,7 +220,7 @@ a file on a USB disk in `/mnt/pc`. The source is only read; the result is writte
 2. Pick a profile, and the original language: Radarr and Sonarr give it for library files, here it is
    guessed from the default audio track and can be changed. The tracks table previews the profile.
 3. **Remux with** the profile as it is, or change the **Tracks** table (filled from the profile, as on a
-   library file's page: keep, rename, reorder and flag tracks, chapters and tags) and **Remux with these tracks**.
+   library file's page: keep, rename, reorder and flag tracks, chapters and tags) and **Remux with these changes**.
 
 The conversion goes through the normal queue and its checks (no lost tracks, HDR or length). It always
 remuxes, even when the profile would change nothing, so there is always a clean copy. A file of the

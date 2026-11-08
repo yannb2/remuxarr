@@ -191,7 +191,7 @@
             else
             {
                 <div class="table-responsive">
-                    <CustomConversionPanel @key="_editor" Editor="_editor" File="_file" ShowCurrent="true" ShowProfileBar="false">
+                    <CustomConversionPanel @key="_editor" Editor="_editor" File="_file" ShowCurrent="true" ShowProfileBar="false" Open="true">
                         <LeftActions>
                             <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="RefreshPreview">
                                 <i class="bi bi-arrow-counterclockwise me-1"></i>Back to the profile
@@ -199,7 +199,7 @@
                         </LeftActions>
                         <Actions>
                             <button class="btn btn-primary" @onclick="QueueEditor" disabled="@(!CanQueue || !_editor.HasAudio)">
-                                <i class="bi bi-check-lg me-2"></i>Remux with these tracks
+                                <i class="bi bi-check-lg me-2"></i>Remux with these changes
                             </button>
                         </Actions>
                     </CustomConversionPanel>

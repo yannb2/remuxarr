@@ -189,133 +189,248 @@
         </tbody>
     </table>
 
-    @if (Editor.CanRenameChapters)
+    @if (Editor.HasChapters || Open)
     {
-        <details class="mt-3" open="@Editor.Chapters.Any(c => c.IsChanged)">
-            <summary class="fw-semibold text-body-secondary small">
-                <i class="bi bi-bookmarks me-1"></i>Chapters (@Editor.Chapters.Count)
+        <details class="mt-4" open="@(Open || !Editor.KeepChapters || Editor.Chapters.Any(c => c.IsChanged))">
+            <summary class="fw-semibold">
+                <i class="bi bi-bookmarks text-primary me-1"></i>Chapters
+                <span class="badge text-bg-light border ms-1">@Editor.Chapters.Count</span>
             </summary>
-            <div class="d-flex gap-2 my-2">
-                <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => Editor.NumberChapters()">
-                    <i class="bi bi-list-ol me-1"></i>Chapter 1, 2, 3...
-                </button>
-                @if (Editor.HasOriginalChapterTitles)
-                {
-                    <button type="button" class="btn btn-outline-secondary btn-sm"
-                            @onclick="Editor.UseOriginalChapterTitles">
-                        <i class="bi bi-clock-history me-1"></i>Original titles
-                    </button>
-                }
-                <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="Editor.ResetChapters">
-                    <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
-                </button>
-            </div>
-            <table class="table table-sm align-middle mb-0">
-                <tbody>
-                @foreach (var chapter in Editor.Chapters)
-                {
-                    <tr>
-                        <td class="text-muted small text-nowrap" style="width: 80px;">@ChapterInfo.FormatTime(chapter.StartMs)</td>
-                        <td>
-                            <input type="text" class="form-control form-control-sm @(chapter.IsChanged ? "border-primary" : "")"
-                                   placeholder="@(string.IsNullOrEmpty(chapter.Current) ? "(no title)" : chapter.Current)"
-                                   @bind="chapter.Title" @bind:event="oninput"/>
-                        </td>
-                    </tr>
-                }
-                </tbody>
-            </table>
-            <small class="text-muted d-block mt-1">Only the titles change; an empty box keeps the current
-                title.</small>
-        </details>
-    }
-
-    @if (Editor.CanEditTags)
-    {
-        <div class="mt-3">
-            <label class="form-label small fw-semibold text-body-secondary mb-1" for="releaseLabel">
-                <i class="bi bi-award me-1"></i>Release label
-            </label>
-            <input id="releaseLabel" class="form-control form-control-sm" style="max-width: 320px;"
-                   placeholder="Criterion, Arrow, Shout! Factory..."
-                   value="@Editor.ReleaseLabel"
-                   @onchange="e => Editor.ReleaseLabel = e.Value?.ToString() ?? string.Empty"/>
-            <small class="text-muted d-block">
-                Written to the @CustomConversionEditor.ReleaseLabelTag tag, as Ripparr does; Jellyfin shows it as
-                "Release: ..." through edition_tags.py. Empty removes the tag. A file still tagged
-                @CustomConversionEditor.OldReleaseLabelTag (before 1.1.2) moves to @CustomConversionEditor.ReleaseLabelTag when you change the box.
-            </small>
-        </div>
-        <details class="mt-3" open="@Editor.TagsChanged">
-            <summary class="fw-semibold text-body-secondary small">
-                <i class="bi bi-tags me-1"></i>Global tags (@Editor.Tags.Count(t => !t.IsNew))
-            </summary>
-            <div class="d-flex gap-2 my-2">
-                <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="Editor.AddTag">
-                    <i class="bi bi-plus-lg me-1"></i>Add tag
-                </button>
-                @if (Editor.BackedUpTags != null)
-                {
-                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="Editor.UseBackedUpTags">
-                        <i class="bi bi-clock-history me-1"></i>Backed-up tags
-                    </button>
-                }
-                <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="Editor.ResetTags">
-                    <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
-                </button>
-            </div>
-            @if (Editor.Tags.Count == 0)
+            @if (!Editor.HasChapters)
             {
-                <small class="text-muted d-block">This file has no global tags.</small>
+                <small class="text-muted d-block mt-2">This file has no chapters.</small>
             }
             else
             {
+                <div class="d-flex align-items-center flex-wrap gap-3 my-2">
+                    <div class="form-check form-switch mb-0">
+                        <input class="form-check-input" type="checkbox" role="switch" id="keepChapters"
+                               checked="@Editor.KeepChapters"
+                               @onchange="e => Editor.KeepChapters = e.Value is true"/>
+                        <label class="form-check-label small" for="keepChapters">Keep the chapters</label>
+                    </div>
+                    @if (Editor.CanRenameChapters && Editor.KeepChapters)
+                    {
+                        <div class="d-flex gap-2 flex-wrap">
+                            <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => Editor.NumberChapters()">
+                                <i class="bi bi-list-ol me-1"></i>Chapter 1, 2, 3...
+                            </button>
+                            @if (Editor.HasOriginalChapterTitles)
+                            {
+                                <button type="button" class="btn btn-outline-secondary btn-sm"
+                                        @onclick="Editor.UseOriginalChapterTitles">
+                                    <i class="bi bi-clock-history me-1"></i>Original titles
+                                </button>
+                            }
+                        </div>
+                    }
+                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="Editor.ResetChapters">
+                        <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
+                    </button>
+                </div>
+                @if (!Editor.KeepChapters)
+                {
+                    <div class="alert alert-warning py-2 small mb-2">
+                        <i class="bi bi-scissors me-1"></i>Every chapter will be removed from the file.
+                    </div>
+                }
+                @if (Editor.Chapters.Count == 0)
+                {
+                    <small class="text-muted d-block">This file has chapters. Rescan it to list them.</small>
+                }
+                else
+                {
+                    var showOriginal = Editor.HasOriginalChapterTitles;
+                    <div style="max-height: 420px; overflow-y: auto;">
+                        <table class="table table-sm align-middle mb-0 @(Editor.KeepChapters ? "" : "opacity-50")">
+                            <thead>
+                            <tr>
+                                <th style="width: 40px;">#</th>
+                                <th style="width: 110px;">Start</th>
+                                <th>Title</th>
+                                @if (showOriginal)
+                                {
+                                    <th>Original title</th>
+                                }
+                            </tr>
+                            </thead>
+                            <tbody>
+                            @for (var i = 0; i < Editor.Chapters.Count; i++)
+                            {
+                                var chapter = Editor.Chapters[i];
+                                <tr>
+                                    <td class="text-muted small">@(i + 1)</td>
+                                    <td class="text-muted small text-nowrap">@ChapterInfo.FormatTime(chapter.StartMs)</td>
+                                    <td>
+                                        @if (Editor.CanRenameChapters)
+                                        {
+                                            <input type="text" class="form-control form-control-sm @(chapter.IsChanged ? "border-primary" : "")"
+                                                   disabled="@(!Editor.KeepChapters)"
+                                                   placeholder="@(string.IsNullOrEmpty(chapter.Current) ? "(no title)" : chapter.Current)"
+                                                   @bind="chapter.Title" @bind:event="oninput"/>
+                                            @if (chapter.IsChanged)
+                                            {
+                                                <small class="text-muted d-block mt-1">
+                                                    <i class="bi bi-arrow-return-right me-1"></i>Now: @(string.IsNullOrEmpty(chapter.Current) ? "(no title)" : chapter.Current)
+                                                </small>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <span class="small text-break">@(string.IsNullOrEmpty(chapter.Current) ? "(no title)" : chapter.Current)</span>
+                                        }
+                                    </td>
+                                    @if (showOriginal)
+                                    {
+                                        <td class="small text-muted text-break">
+                                            @(chapter.Original == chapter.Current ? "(unchanged)" : chapter.Original ?? "(no title)")
+                                        </td>
+                                    }
+                                </tr>
+                            }
+                            </tbody>
+                        </table>
+                    </div>
+                    <small class="text-muted d-block mt-1">
+                        @if (Editor.CanRenameChapters)
+                        {
+                            <text>Only the titles change; an empty box keeps the current title.</text>
+                        }
+                        else
+                        {
+                            <text>Chapter titles can only be changed in MKV files; the chapters can still be removed.</text>
+                        }
+                    </small>
+                }
+            }
+        </details>
+    }
+
+    @if (Editor.CanEditTags || Open)
+    {
+        <details class="mt-4" open="@(Open || Editor.TagsChanged)">
+            <summary class="fw-semibold">
+                <i class="bi bi-tags text-primary me-1"></i>Global tags
+                <span class="badge text-bg-light border ms-1">@Editor.FileTagCount in the file</span>
+            </summary>
+            @if (!Editor.CanEditTags)
+            {
+                @if (Editor.FileTagCount == 0)
+                {
+                    <small class="text-muted d-block mt-2">This file has no global tags.</small>
+                }
+                else
+                {
+                    <table class="table table-sm mb-0 mt-2 small">
+                        <tbody>
+                        @foreach (var tag in Editor.Tags.Where(t => !t.IsSlot))
+                        {
+                            <tr>
+                                <td class="text-muted text-nowrap pe-3" style="width: 1%;">@tag.Name</td>
+                                <td class="text-break">@tag.Value</td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                }
+                <small class="text-muted d-block mt-1">Global tags can only be changed in MKV files.</small>
+            }
+            else
+            {
+                <div class="d-flex gap-2 my-2 flex-wrap">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="Editor.AddTag">
+                        <i class="bi bi-plus-lg me-1"></i>Add tag
+                    </button>
+                    @if (Editor.BackedUpTags != null)
+                    {
+                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="Editor.UseBackedUpTags">
+                            <i class="bi bi-clock-history me-1"></i>Backed-up tags
+                        </button>
+                    }
+                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="Editor.ResetTags">
+                        <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
+                    </button>
+                </div>
                 <table class="table table-sm align-middle mb-0">
+                    <thead>
+                    <tr>
+                        <th style="width: 30%;">Tag</th>
+                        <th>Value</th>
+                        <th style="width: 40px;"></th>
+                    </tr>
+                    </thead>
                     <tbody>
                     @foreach (var tag in Editor.Tags)
                     {
                         <tr class="@(tag.Removed ? "opacity-50" : "")">
-                            <td style="width: 35%;">
-                                @if (tag.IsNew)
+                            <td>
+                                @if (tag.IsNew && !tag.IsSlot)
                                 {
                                     <input type="text" class="form-control form-control-sm border-primary"
                                            placeholder="NAME" @bind="tag.Name" @bind:event="oninput"/>
                                 }
                                 else
                                 {
-                                    <span class="small text-break @(tag.Removed ? "text-decoration-line-through" : "")">@tag.Name</span>
+                                    <span class="small text-break @(tag.IsEmptySlot ? "text-muted" : "") @(tag.Removed ? "text-decoration-line-through" : "")">@tag.Name</span>
                                 }
                             </td>
                             <td>
                                 <input type="text"
                                        class="form-control form-control-sm @(tag.IsChanged && !tag.Removed ? "border-primary" : "")"
                                        disabled="@tag.Removed"
+                                       placeholder="@(tag.IsSlot ? $"not set: {tag.Hint}" : null)"
                                        @bind="tag.Value" @bind:event="oninput"/>
+                                @if (ShowCurrent && tag.IsChanged && !tag.Removed)
+                                {
+                                    <small class="text-muted d-block mt-1">
+                                        <i class="bi bi-arrow-return-right me-1"></i>Now: @(tag.Current == null ? "not in the file" : tag.Current.Length == 0 ? "(empty)" : tag.Current)
+                                    </small>
+                                }
                             </td>
-                            <td style="width: 40px;">
-                                <ToolTip Tip="@(tag.Removed ? "Keep this tag" : "Remove this tag")">
-                                    <button type="button" class="btn btn-sm btn-link p-0 @(tag.Removed ? "text-secondary" : "text-danger")"
-                                            @onclick="() => tag.Removed = !tag.Removed">
-                                        <i class="bi @(tag.Removed ? "bi-arrow-counterclockwise" : "bi-trash")"></i>
-                                    </button>
-                                </ToolTip>
+                            <td>
+                                @if (tag.IsSlot)
+                                {
+                                    @if (!tag.IsEmptySlot)
+                                    {
+                                        <ToolTip Tip="Leave this tag out">
+                                            <button type="button" class="btn btn-sm btn-link p-0 text-danger" @onclick="() => tag.Value = string.Empty">
+                                                <i class="bi bi-x-lg"></i>
+                                            </button>
+                                        </ToolTip>
+                                    }
+                                }
+                                else
+                                {
+                                    <ToolTip Tip="@(tag.Removed ? "Keep this tag" : "Remove this tag")">
+                                        <button type="button" class="btn btn-sm btn-link p-0 @(tag.Removed ? "text-secondary" : "text-danger")"
+                                                @onclick="() => tag.Removed = !tag.Removed">
+                                            <i class="bi @(tag.Removed ? "bi-arrow-counterclockwise" : "bi-trash")"></i>
+                                        </button>
+                                    </ToolTip>
+                                }
                             </td>
                         </tr>
                     }
                     </tbody>
                 </table>
-            }
-            @if (Editor.TagProblem is { } problem)
-            {
-                <small class="text-danger d-block mt-1">@problem The tags will not be changed until this is fixed.</small>
-            }
-            else
-            {
-                <small class="text-muted d-block mt-1">Track tags, targets and tag languages stay as they are.</small>
+                @if (Editor.TagProblem is { } problem)
+                {
+                    <small class="text-danger d-block mt-1">@problem The tags will not be changed until this is fixed.</small>
+                }
+                else
+                {
+                    <small class="text-muted d-block mt-1">
+                        The usual tags (the ones tag_release.py and Ripparr write) are always listed; an empty one is not
+                        written. @CustomConversionEditor.ReleaseLabelTag is the release label (Criterion, Arrow...), which
+                        Jellyfin shows as "Release: ..." through edition_tags.py; a file tagged before 1.1.2 has it in
+                        @CustomConversionEditor.OldReleaseLabelTag (listed under the usual tags): copy it to
+                        @CustomConversionEditor.ReleaseLabelTag and remove it. Track tags, targets and tag languages stay as
+                        they are.
+                    </small>
+                }
             }
         </details>
     }
-
 
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
         <div class="d-flex align-items-center gap-2">
@@ -352,6 +467,9 @@
     [Parameter] public bool ShowCurrent { get; set; }
 
     [Parameter] public bool ShowProfileBar { get; set; } = true;
+
+    /// <summary>Chapters and Global tags open and always shown (the file pages); the modal folds them away.</summary>
+    [Parameter] public bool Open { get; set; }
     [Parameter] public Profile? Profile { get; set; }
     [Parameter] public List<Profile> Profiles { get; set; } = new();
     [Parameter] public RenderFragment? Actions { get; set; }
