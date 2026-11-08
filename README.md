@@ -154,7 +154,7 @@ in the library get it the next time they are queued.
 **Copy subtitles** in the menu adds subtitle tracks from other files to a movie or to the episodes of
 a series, for a language the library copy lacks. The donors are files outside the library: another BD remux of the
 same show, or loose `.srt`, `.ass`, `.ssa` and `.sup` files. They are read from the folders listed in
-Settings > Processing > **Copy subtitles: donor folders** (default `/downloads` and `/mnt/pc`, which
+Settings > Processing > **Folders outside the library** (default `/downloads` and `/mnt/pc`, which
 have to be mounted in the container; read-only is enough).
 
 1. Pick a series or a movie in the library (a folder with S01E02-style names is a series; the
@@ -182,6 +182,37 @@ have to be mounted in the container; read-only is enough).
    the usual output checks run before the original is replaced.
 
 MKV files only. Conversions queued from this page show what was added in their log.
+
+### Remux a file
+
+**Remux a file** in the menu remuxes any video file outside the library: a download in `/downloads`,
+a file on a USB disk in `/mnt/pc`. The source is only read; the result is written to the clean folder,
+`/downloads/import/clean` by default, under the same file name. Import it from there.
+
+1. Browse the folders outside the library (the same list as Copy subtitles; in `/mnt/pc` only the
+   disks that are plugged in show) and click a video file. Its tracks are read and shown.
+2. Pick a profile, and the original language: Radarr and Sonarr give it for library files, here it is
+   guessed from the default audio track and can be changed. The tracks table previews the profile.
+3. **Remux with** the profile, or **Pick tracks** for a custom conversion (the same window as on a
+   library file: keep, rename, reorder and flag tracks, chapters and tags).
+
+The conversion goes through the normal queue and its checks (no lost tracks, HDR or length). It always
+remuxes, even when the profile would change nothing, so there is always a clean copy. A file of the
+same name already in the clean folder is never overwritten: the page says so and the queue refuses.
+Radarr and Sonarr are not told and no post-processing runs. The file only has a library row while its
+conversion is queued or running. The **Recent** list on the page links to each conversion.
+
+Settings > Processing > **Remux a file: clean folder** sets the folder. It has to be mounted
+read-write, the only folder outside the library Remuxarr writes to:
+
+```yaml
+    volumes:
+      - /downloads:/downloads:ro
+      - /downloads/import/clean:/downloads/import/clean   # Remux a file writes here
+      - /mnt/pc:/mnt/pc:ro,rslave
+```
+
+The host folder has to exist before the container starts. Settings > Status lists it with its free space.
 
 ## Configuration
 

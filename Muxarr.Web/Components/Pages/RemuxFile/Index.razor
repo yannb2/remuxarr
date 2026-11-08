@@ -1,0 +1,569 @@
+@page "/remux-file"
+@using Muxarr.Core.Config
+@using Muxarr.Core.Language
+@using Muxarr.Web.Components.Pages.Conversions
+@using Muxarr.Web.Components.Pages.Library
+@implements IDisposable
+
+@* Fork: remux any file from outside the library (/downloads, /mnt/pc) with a profile or a custom
+   track pick. The source is only read; the result goes to the clean folder (/downloads/import/clean). *@
+
+<PageTitle>@TitleHelper.GetTitle("Remux a file")</PageTitle>
+
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-3 mux-page-header gap-2">
+        <h2 class="mb-0 me-auto"><i class="bi bi-file-earmark-arrow-down me-2"></i>Remux a file</h2>
+    </div>
+
+    <p class="text-body-secondary small">
+        Pick any video file outside the library, in <code>@string.Join(", ", _configuredRoots)</code>, and remux it
+        with a profile or with the tracks you pick. The file itself is only read: the result is written to
+        <code>@_cleanFolder</code> under the same name, after the usual checks (no lost tracks, HDR or length).
+        Nothing is renamed, and Radarr or Sonarr are not told; import the clean file from there.
+    </p>
+
+    @if (_cleanProblem != null)
+    {
+        <div class="alert alert-warning small py-2">
+            <i class="bi bi-exclamation-triangle me-1"></i>@_cleanProblem
+        </div>
+    }
+
+    @* 1. File *@
+    <div class="border rounded p-3 mb-3">
+        <h5 class="mb-2"><span class="badge text-bg-secondary me-2">1</span>File</h5>
+        @if (_roots.Count == 0)
+        {
+            @if (_missingRoots.Count > 0)
+            {
+                <div class="small text-warning-emphasis">
+                    <i class="bi bi-exclamation-triangle me-1"></i>@string.Join(" and ", _missingRoots)
+                    @(_missingRoots.Count == 1 ? "is" : "are") set but not found in the container.
+                    Mount @(_missingRoots.Count == 1 ? "it" : "them") in the compose file (read-only is enough) and recreate the container.
+                </div>
+            }
+            else
+            {
+                <span class="text-muted small">No folders are set. Add them in <a href="settings/processing">Settings &gt; Processing</a>.</span>
+            }
+        }
+        else if (_file == null)
+        {
+            <div class="d-flex flex-wrap gap-1 mb-2">
+                @foreach (var root in _roots)
+                {
+                    <button class="btn btn-sm @(_browse == root ? "btn-secondary" : "btn-outline-secondary")" @onclick="() => Browse(root)">@root</button>
+                }
+            </div>
+            @if (_missingRoots.Count > 0)
+            {
+                <div class="small text-muted mb-2">
+                    <i class="bi bi-info-circle me-1"></i>Not found in the container (not mounted): @string.Join(", ", _missingRoots)
+                </div>
+            }
+            @if (_browse != null)
+            {
+                <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+                    @if (_roots.All(r => r != _browse))
+                    {
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="BrowseUp" title="Up one folder"><i class="bi bi-arrow-up"></i></button>
+                    }
+                    <code class="text-break">@_browse</code>
+                    <button class="btn btn-sm btn-outline-secondary ms-auto" @onclick="() => Browse(_browse)" title="Read the folder again">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                </div>
+                @if (_browseError != null)
+                {
+                    <div class="text-danger small mb-2">@_browseError</div>
+                }
+                <div class="list-group list-group-flush border rounded mux-copy-list">
+                    @foreach (var sub in _browseFolders)
+                    {
+                        <button class="list-group-item list-group-item-action py-1 small text-break" @onclick="() => Browse(sub)">
+                            <i class="bi bi-folder me-1"></i>@Path.GetFileName(sub)
+                        </button>
+                    }
+                    @foreach (var entry in _browseFiles)
+                    {
+                        <button class="list-group-item list-group-item-action py-1 small text-break d-flex align-items-center gap-2"
+                                @onclick="() => PickFile(entry.Path)" disabled="@_loading">
+                            <i class="bi bi-file-earmark-play text-primary"></i>
+                            <span>@Path.GetFileName(entry.Path)</span>
+                            <span class="text-muted ms-auto text-nowrap">@entry.Size.DisplayFileSize()</span>
+                        </button>
+                    }
+                    @if (_browseFolders.Count == 0 && _browseFiles.Count == 0)
+                    {
+                        <span class="list-group-item small text-muted">No folders or video files here.</span>
+                    }
+                </div>
+                <div class="text-muted small mt-1">Video files: @string.Join(" ", MediaScannerService.SupportedExtensions.Order())</div>
+            }
+            @if (_loading)
+            {
+                <div class="small mt-2"><span class="spinner-border spinner-border-sm me-1"></span>Reading the tracks of @Path.GetFileName(_loadingPath)...</div>
+            }
+        }
+        else
+        {
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <code class="text-break">@_file.Path</code>
+                <span class="text-muted small text-nowrap">@_file.Size.DisplayFileSize()</span>
+                <button class="btn btn-sm btn-link" @onclick="ClearFile" disabled="@_busy">Change</button>
+            </div>
+        }
+    </div>
+
+    @if (_file != null)
+    {
+        @* 2. Remux *@
+        <div class="border rounded p-3 mb-3">
+            <h5 class="mb-2"><span class="badge text-bg-secondary me-2">2</span>Remux</h5>
+            @if (_profiles.Count == 0)
+            {
+                <span class="text-muted small">There is no profile yet. Add one in <a href="settings/profiles">Settings</a>.</span>
+            }
+            else
+            {
+                <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
+                    <div class="d-flex align-items-center gap-2">
+                        <label for="remux-profile" class="form-label mb-0 fw-semibold">Profile</label>
+                        <select id="remux-profile" class="form-select form-select-sm w-auto" style="min-width: 180px;"
+                                value="@_profile?.Id" @onchange="OnProfileChanged">
+                            @foreach (var p in _profiles)
+                            {
+                                <option value="@p.Id">@p.Name</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <label for="remux-language" class="form-label mb-0 fw-semibold">Original language</label>
+                        <select id="remux-language" class="form-select form-select-sm w-auto" style="max-width: 220px;"
+                                value="@(_originalLanguage ?? "")" @onchange="OnLanguageChanged">
+                            <option value="">Unknown</option>
+                            @foreach (var name in LanguageNames)
+                            {
+                                <option value="@name">@name</option>
+                            }
+                        </select>
+                        <ToolTip Tip="Radarr and Sonarr give this for library files. Here it is guessed from the default audio track; the profile's Original Language entries follow it."><i class="bi bi-info-circle text-muted"></i></ToolTip>
+                    </div>
+                </div>
+
+                <div class="small mb-3">
+                    <span class="text-muted">Writes</span> <code class="text-break">@_output</code>
+                    @if (_outputExists)
+                    {
+                        <div class="text-danger mt-1"><i class="bi bi-exclamation-circle me-1"></i>A file with this name is already there. Move or delete it first.</div>
+                    }
+                </div>
+
+                <div class="d-flex gap-2 flex-wrap">
+                    <button class="btn btn-primary" @onclick="QueueWithProfile" disabled="@(!CanQueue)">
+                        <i class="bi bi-plus-lg me-2"></i>Remux with @_profile?.Name
+                    </button>
+                    <button class="btn btn-outline-primary" @onclick="QueueCustom" disabled="@(!CanQueue)">
+                        <i class="bi bi-sliders me-2"></i>Pick tracks
+                    </button>
+                </div>
+            }
+        </div>
+
+        @* 3. Tracks *@
+        <div class="border rounded p-3 mb-3">
+            <div class="d-flex align-items-center mb-2">
+                <h5 class="mb-0"><span class="badge text-bg-secondary me-2">3</span>Tracks</h5>
+                @if (_preview != null && _profile != null)
+                {
+                    <span class="badge bg-info-subtle text-info-emphasis ms-2 small">
+                        <i class="bi bi-eye me-1"></i>Preview: @_profile.Name
+                    </span>
+                }
+            </div>
+            <div class="table-responsive">
+                @if (_file.Snapshot.Tracks.Count > 0)
+                {
+                    <MediaTrackDetailTable Tracks="_file.Snapshot.Tracks"
+                                           PreviewTracks="_preview?.Tracks"
+                                           Current="_file.Snapshot"
+                                           Plan="_preview"
+                                           OriginalLanguage="@_originalLanguage"/>
+                }
+                else
+                {
+                    <span class="text-muted small">No tracks found.</span>
+                }
+            </div>
+        </div>
+    }
+
+    @if (_recent.Count > 0)
+    {
+        <div class="border rounded p-3 mb-3">
+            <h5 class="mb-2"><i class="bi bi-clock-history me-2"></i>Recent</h5>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0 small">
+                    <thead>
+                    <tr>
+                        <th>File</th>
+                        <th>State</th>
+                        <th>Written to</th>
+                        <th>Queued</th>
+                        <th></th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    @foreach (var conversion in _recent)
+                    {
+                        <tr>
+                            <td class="text-break">@conversion.Name</td>
+                            <td class="text-nowrap">
+                                <ConversionStateBadge Conversion="conversion"/>
+                                @if (conversion.State == ConversionState.Processing)
+                                {
+                                    <span class="text-muted ms-1">@(MediaConverter.LiveProgress(conversion.Id) ?? conversion.Progress)%</span>
+                                }
+                            </td>
+                            <td class="text-break"><code>@conversion.OutputPath</code></td>
+                            <td class="text-nowrap"><TimeAgo DateTime="conversion.CreatedDate"/></td>
+                            <td class="text-end">
+                                <a class="btn btn-outline-primary btn-sm" href="conversions/@conversion.Id" title="View"><i class="bi bi-search"></i></a>
+                            </td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Inject] public required IDbContextFactory<AppDbContext> ContextFactory { get; set; }
+    [Inject] public required MediaConverterService MediaConverter { get; set; }
+    [Inject] public required IToastService ToastService { get; set; }
+    [Inject] public required IModalService ModalService { get; set; }
+
+    private sealed record FileEntry(string Path, long Size);
+
+    private static readonly List<string> LanguageNames = IsoLanguage.Languages
+        .Where(l => l.WriteCode != null)
+        .Select(l => l.Name)
+        .Distinct()
+        .Order()
+        .ToList();
+
+    private ProcessingConfig _config = new();
+    private List<string> _configuredRoots = [];
+    private List<string> _roots = [];
+    private List<string> _missingRoots = [];
+    private string _cleanFolder = ProcessingConfig.DefaultCleanFolder;
+    private string? _cleanProblem;
+
+    private string? _browse;
+    private List<string> _browseFolders = [];
+    private List<FileEntry> _browseFiles = [];
+    private string? _browseError;
+
+    private bool _loading;
+    private string? _loadingPath;
+    private MediaFile? _file;
+    private List<Profile> _profiles = [];
+    private Profile? _profile;
+    private string? _originalLanguage;
+    private ConversionPlan? _preview;
+    private string _output = "";
+    private bool _outputExists;
+    private bool _busy;
+
+    private List<MediaConversion> _recent = [];
+
+    private bool CanQueue => _file != null && _profile != null && !_busy && !_outputExists && _output != _file.Path;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var context = await ContextFactory.CreateDbContextAsync();
+        _config = context.Configs.GetOrDefault<ProcessingConfig>();
+        _configuredRoots = _config.GetDonorFolders();
+        _roots = _configuredRoots.Where(Directory.Exists).ToList();
+        _missingRoots = _configuredRoots.Where(r => !Directory.Exists(r)).ToList();
+        _cleanFolder = _config.GetCleanFolder();
+        _cleanProblem = CheckCleanFolder(_cleanFolder);
+        _profiles = await context.Profiles.OrderBy(p => p.Name).ToListAsync();
+        await LoadRecent();
+        MediaConverter.ConverterStateChanged += OnConverterStateChanged;
+        if (_roots.Count > 0)
+        {
+            Browse(_roots[0]);
+        }
+    }
+
+    // The converter makes the folder when it is missing, so only a folder it cannot write to is a problem.
+    private static string? CheckCleanFolder(string folder)
+    {
+        var existing = folder;
+        while (!Directory.Exists(existing) && Path.GetDirectoryName(existing) is { } parent)
+        {
+            existing = parent;
+        }
+
+        var probe = Path.Combine(existing, $".remuxarr-write-test-{Guid.NewGuid():N}");
+        try
+        {
+            File.WriteAllBytes(probe, []);
+            File.Delete(probe);
+            return null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return $"Remuxarr cannot write to {folder}, so remuxes would fail. Mount it read-write in the compose " +
+                   $"file (for example - {folder}:{folder}) and recreate the container. The folder is set in Settings > Processing.";
+        }
+    }
+
+    private async Task LoadRecent()
+    {
+        await using var context = await ContextFactory.CreateDbContextAsync();
+        _recent = await context.MediaConversions
+            .Where(c => c.OutputPath != null)
+            .OrderByDescending(c => c.Id)
+            .Take(10)
+            .AsNoTracking()
+            .ToListAsync();
+    }
+
+    private void OnConverterStateChanged(ConverterProgressEvent e)
+    {
+        if (e.Conversion.OutputPath == null)
+        {
+            return;
+        }
+
+        _ = InvokeAsync(async () =>
+        {
+            var shown = _recent.FirstOrDefault(c => c.Id == e.Conversion.Id);
+            if (shown == null || shown.State != e.Conversion.State)
+            {
+                await LoadRecent();
+                if (e.Conversion.State == ConversionState.Completed)
+                {
+                    ToastService.ShowSuccess($"Wrote {e.Conversion.OutputPath}");
+                }
+                else if (e.Conversion.State == ConversionState.Failed)
+                {
+                    ToastService.ShowError($"Could not remux {e.Conversion.Name}. The conversion's log says why.");
+                }
+
+                RefreshOutput();
+            }
+            else
+            {
+                shown.Progress = e.Conversion.Progress;
+            }
+
+            StateHasChanged();
+        });
+    }
+
+    private void Browse(string? folder)
+    {
+        if (folder == null || !InsideRoots(folder))
+        {
+            return;
+        }
+
+        _browse = folder;
+        _browseError = null;
+        try
+        {
+            var options = new EnumerationOptions { IgnoreInaccessible = true };
+            var folders = Directory.EnumerateDirectories(folder, "*", options).Where(d => !Path.GetFileName(d).StartsWith('.'));
+            // In a root such as /mnt/pc, list only the disks that are plugged in (an unplugged disk's mount point is
+            // an empty folder on the root's own mount).
+            if (_roots.Contains(folder))
+            {
+                folders = Arrkit.Files.Mounts.WithDisk(folders);
+            }
+
+            _browseFolders = folders.Order(StringComparer.OrdinalIgnoreCase).ToList();
+            _browseFiles = Directory.EnumerateFiles(folder, "*", options)
+                .Where(f => !Path.GetFileName(f).StartsWith('.')
+                            && MediaScannerService.SupportedExtensions.Contains(Path.GetExtension(f)))
+                .Order(StringComparer.OrdinalIgnoreCase)
+                .Select(f => new FileEntry(f, SizeOf(f)))
+                .ToList();
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            _browseFolders = [];
+            _browseFiles = [];
+            _browseError = e.Message;
+        }
+    }
+
+    private static long SizeOf(string file)
+    {
+        try
+        {
+            return new FileInfo(file).Length;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return 0;
+        }
+    }
+
+    private void BrowseUp()
+    {
+        if (_browse != null && Path.GetDirectoryName(_browse) is { } parent && InsideRoots(parent))
+        {
+            Browse(parent);
+        }
+    }
+
+    private bool InsideRoots(string path) =>
+        _roots.Any(root => path == root || path.StartsWith(root.TrimEnd('/') + "/", StringComparison.Ordinal));
+
+    private async Task PickFile(string path)
+    {
+        if (!InsideRoots(path) || _loading)
+        {
+            return;
+        }
+
+        _loading = true;
+        _loadingPath = path;
+        await InvokeAsync(StateHasChanged);
+        try
+        {
+            // Read in memory only: the file gets a row when it is queued.
+            var file = new MediaFile { Path = path, Size = SizeOf(path) };
+            var probe = await file.SetFileDataFromFFprobe();
+            if (probe.Result == null || file.Snapshot.Tracks.Count == 0)
+            {
+                ToastService.ShowError($"Could not read the tracks of {Path.GetFileName(path)}: {probe.Error?.Trim()}");
+                return;
+            }
+
+            _file = file;
+            _originalLanguage = GuessOriginalLanguage(file);
+            _profile ??= _profiles.GetBestCandidate(path) ?? _profiles.FirstOrDefault();
+            RefreshPreview();
+            RefreshOutput();
+        }
+        finally
+        {
+            _loading = false;
+            _loadingPath = null;
+        }
+    }
+
+    // The default audio track, else the first one. Undetermined says nothing.
+    private static string? GuessOriginalLanguage(MediaFile file)
+    {
+        var audio = file.Snapshot.Tracks.Where(t => t.Type == MediaTrackType.Audio).ToList();
+        var track = audio.FirstOrDefault(t => t.IsDefault) ?? audio.FirstOrDefault();
+        var language = track == null ? IsoLanguage.Unknown : IsoLanguage.Find(track.LanguageCode);
+        return language == IsoLanguage.Unknown || !LanguageNames.Contains(language.Name) ? null : language.Name;
+    }
+
+    private void ClearFile()
+    {
+        _file = null;
+        _preview = null;
+        if (_browse != null)
+        {
+            Browse(_browse);
+        }
+    }
+
+    private void OnProfileChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var id))
+        {
+            _profile = _profiles.FirstOrDefault(p => p.Id == id);
+            RefreshPreview();
+        }
+    }
+
+    private void OnLanguageChanged(ChangeEventArgs e)
+    {
+        var value = e.Value?.ToString();
+        _originalLanguage = string.IsNullOrEmpty(value) ? null : value;
+        RefreshPreview();
+    }
+
+    private void RefreshPreview()
+    {
+        if (_file == null)
+        {
+            return;
+        }
+
+        _file.OriginalLanguage = _originalLanguage;
+        _file.Profile = _profile;
+        _file.ProfileId = _profile?.Id ?? 0;
+        _preview = _profile == null ? null : _file.BuildTargetFromProfile(_profile);
+    }
+
+    private void RefreshOutput()
+    {
+        if (_file == null)
+        {
+            return;
+        }
+
+        _output = MediaConverterService.OutsideOutputPath(_config, _file.Path);
+        _outputExists = File.Exists(_output);
+    }
+
+    private Task QueueWithProfile() => Queue(null);
+
+    private async Task QueueCustom()
+    {
+        if (_file == null)
+        {
+            return;
+        }
+
+        var plan = await ModalService.ShowCustomConversion(_file, _profiles, _profile);
+        if (plan != null)
+        {
+            await Queue(plan);
+        }
+    }
+
+    private async Task Queue(ConversionPlan? custom)
+    {
+        if (_file == null || _profile == null || _busy)
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            var result = await MediaConverter.AddOutsideFileToQueue(_file.Path, _profile, _originalLanguage, custom);
+            if (!result.Queued)
+            {
+                ToastService.ShowError(result.Error ?? "Could not queue the file.");
+                RefreshOutput();
+                return;
+            }
+
+            ToastService.ShowSuccess($"Queued {Path.GetFileName(_file.Path)}. It will be written to {_output}.");
+            await LoadRecent();
+            ClearFile();
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    public void Dispose()
+    {
+        MediaConverter.ConverterStateChanged -= OnConverterStateChanged;
+    }
+}

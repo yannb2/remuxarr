@@ -21,8 +21,9 @@ public class ProcessingConfig
     }
 
     /// <summary>
-    /// Fork: the folders the Copy subtitles page may take donor files from, one per
-    /// line. They have to be mounted in the container (read-only is enough).
+    /// Fork: the folders outside the library that Remuxarr may read, one per line: the
+    /// Copy subtitles page takes donor files from them, the Remux a file page picks the
+    /// file to remux in them. They have to be mounted in the container (read-only is enough).
     /// </summary>
     public string DonorFolders { get; set; } = "/downloads\n/mnt/pc";
 
@@ -33,6 +34,20 @@ public class ProcessingConfig
             .Select(line => line.Length > 1 ? line.TrimEnd('/') : line)
             .Distinct(StringComparer.Ordinal)
             .ToList();
+    }
+
+    /// <summary>
+    /// Fork: where the Remux a file page writes its results. The only folder outside the
+    /// library Remuxarr writes to, so it has to be mounted read-write.
+    /// </summary>
+    public string CleanFolder { get; set; } = DefaultCleanFolder;
+
+    public const string DefaultCleanFolder = "/downloads/import/clean";
+
+    public string GetCleanFolder()
+    {
+        var folder = CleanFolder.Trim();
+        return folder.Length == 0 ? DefaultCleanFolder : folder.Length > 1 ? folder.TrimEnd('/') : folder;
     }
 
     public bool PostProcessingEnabled { get; set; }

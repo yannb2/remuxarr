@@ -83,13 +83,24 @@
         </div>
 
         <div class="mb-3">
-            <label for="donor-folders" class="form-label">Copy subtitles: donor folders</label>
+            <label for="donor-folders" class="form-label">Folders outside the library</label>
             <InputTextArea id="donor-folders" class="form-control font-monospace" rows="2"
                            placeholder="/downloads&#10;/mnt/pc"
                            @bind-Value="ProcessingConfig.DonorFolders"/>
             <small class="form-text text-muted">One per line. The <a href="copy-subtitles">Copy subtitles</a> page
-                browses these folders for the files to take subtitles from. They must be mounted in the container;
-                read-only is enough, nothing is written there.</small>
+                browses these folders for the files to take subtitles from, and the <a href="remux-file">Remux a
+                file</a> page for the file to remux. They must be mounted in the container; read-only is enough,
+                nothing is written there.</small>
+        </div>
+
+        <div class="mb-3">
+            <label for="clean-folder" class="form-label">Remux a file: clean folder</label>
+            <InputText id="clean-folder" class="form-control font-monospace"
+                       placeholder="@ProcessingConfig.DefaultCleanFolder"
+                       @bind-Value="ProcessingConfig.CleanFolder"/>
+            <small class="form-text text-muted">Where the <a href="remux-file">Remux a file</a> page writes its
+                results, under the source's file name. It must be mounted read-write in the container; Remuxarr
+                makes the folder when it is missing.</small>
         </div>
 
         <div class="mb-3 form-check form-switch">

@@ -395,8 +395,9 @@
 
             if (e.Conversion is { State: ConversionState.Completed, MediaFile: not null })
             {
-                conversion.SizeAfter = e.Conversion.MediaFile.Size;
-                conversion.AfterSnapshot = e.Conversion.MediaFile.Snapshot;
+                // Remux a file writes elsewhere: the source row is not the result.
+                conversion.SizeAfter = e.Conversion.OutputPath != null ? e.Conversion.SizeAfter : e.Conversion.MediaFile.Size;
+                conversion.AfterSnapshot = e.Conversion.AfterSnapshot ?? e.Conversion.MediaFile.Snapshot;
                 conversion.SizeDifference = e.Conversion.SizeDifference;
                 ToastService.ShowInfo($"Finished {e.Conversion.MediaFile.GetName()}!");
 

@@ -138,7 +138,9 @@
 
             var folders = new List<FolderRow> { Folder("Database", dbPath) };
             folders.AddRange(profiles.SelectMany(p => p.Directories.Select(d => Folder($"Profile: {p.Name}", d))));
-            folders.AddRange(context.Configs.GetOrDefault<ProcessingConfig>().GetDonorFolders().Select(d => Folder("Copy subtitles donors", d)));
+            var processing = context.Configs.GetOrDefault<ProcessingConfig>();
+            folders.AddRange(processing.GetDonorFolders().Select(d => Folder("Outside the library", d)));
+            folders.Add(Folder("Remux a file: clean folder", processing.GetCleanFolder()));
             if (Log.FilePath != null)
             {
                 folders.Add(Folder("Log file", Log.FilePath));

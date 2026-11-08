@@ -11,6 +11,12 @@ public class MediaConversion : AuditableEntity, IHasId
     public int? MediaFileId { get; set; }
     public required string Name { get; set; } // Either file name or title. Just for reference after deletion.
     public string? TempFilePath { get; set; }
+
+    /// <summary>
+    /// Fork: where a "Remux a file" conversion writes its result. Set, the source is only
+    /// read: the new file goes here instead of replacing it. Null for library conversions.
+    /// </summary>
+    public string? OutputPath { get; set; }
     public List<ConversionLogEntry> LogEntries { get; set; } = [];
     public int Progress { get; set; }
     public long SizeBefore { get; set; }
@@ -62,6 +68,9 @@ public class MediaConversionConfiguration : AuditEntityConfiguration<MediaConver
             .HasMaxLength(4096);
 
         builder.Property(e => e.TempFilePath)
+            .HasMaxLength(4096);
+
+        builder.Property(e => e.OutputPath)
             .HasMaxLength(4096);
 
         builder.Property(e => e.State)
