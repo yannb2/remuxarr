@@ -34,6 +34,18 @@ public static class DonorTargets
             track.IsHearingImpaired = sdh;
         }
 
+        // An auto-synced copy is a loose file: the name and commentary flag of the
+        // track it was made from come with the donor instead.
+        if (donor.Name != null)
+        {
+            track.Name = donor.Name;
+        }
+
+        if (donor.IsCommentary is { } commentary)
+        {
+            track.IsCommentary = commentary;
+        }
+
         // The donor's default flag says nothing about this file: a new track starts
         // as not default, and the profile's default rule decides from there.
         track.IsDefault = false;

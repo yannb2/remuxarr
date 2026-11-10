@@ -19,8 +19,9 @@
         Adds subtitle tracks from other files to a movie, or to the episodes of a series, in the library. Episodes
         are matched by their names (S01E02, 1x02 or an anime's absolute number), a movie by its title and year;
         you can give any file another donor by hand.
-        The timing check finds a shift (a different logo at the start) or a PAL speed-up, and each file then goes
-        through the queue as a normal conversion: the profile names, orders and flags the new tracks with the others,
+        The timing check finds a shift (a different logo at the start) or a PAL speed-up. When the other release is
+        cut differently (an ad break, a longer scene), Auto-sync retimes a text subtitle part by part with alass,
+        against the file's own subtitles or its sound. Each file then goes through the queue as a normal conversion: the profile names, orders and flags the new tracks with the others,
         and the usual checks run before the original is replaced.
     </p>
 
@@ -219,6 +220,18 @@
                 <button class="btn btn-sm btn-outline-primary" @onclick="CheckAll" disabled="@(_busy || _rows.All(r => r.Assignments.Count == 0))">
                     <i class="bi bi-stopwatch me-1"></i>Check timing
                 </button>
+                <div class="input-group input-group-sm w-auto">
+                    <button class="btn btn-outline-primary" @onclick="SyncAll" disabled="@(_busy || SyncWork().Count == 0)"
+                            title="Retimes the ticked text tracks with alass, part by part (handles cuts and ad breaks)">
+                        <i class="bi bi-magic me-1"></i>Auto-sync
+                    </button>
+                    <select class="form-select form-select-sm mux-copy-reference" value="@_syncReference" disabled="@_busy"
+                            title="What Auto-sync lines the donor up with"
+                            @onchange="e => _syncReference = Enum.TryParse<SyncReference>(e.Value?.ToString(), out var r) ? r : SyncReference.Subtitles">
+                        <option value="@SyncReference.Subtitles">with the file's subtitles</option>
+                        <option value="@SyncReference.Audio">with the file's sound</option>
+                    </select>
+                </div>
                 @if (_busy && _checking)
                 {
                     <button class="btn btn-sm btn-outline-secondary" @onclick="StopCheck">Stop</button>
@@ -272,7 +285,10 @@
                                                 <i class="bi bi-x-lg"></i>
                                             </button>
                                         </div>
+                                        @{ var shifted = assignment.Synced.Count == 0 || HasUnsyncedTracks(row, assignment); }
                                         <div class="d-flex align-items-center gap-2 flex-wrap small">
+                                            @if (shifted)
+                                            {
                                             <TimingBadge Assignment="assignment"/>
                                             <label class="text-nowrap">Shift
                                                 <input class="form-control form-control-sm d-inline-block mux-copy-offset" value="@Seconds(assignment.OffsetMs)"
@@ -287,14 +303,43 @@
                                                 }
                                             </select>
                                             <button class="btn btn-sm btn-outline-secondary py-0" @onclick="() => CheckOne(row, assignment)" disabled="@_busy">Check</button>
+                                            }
+                                            <button class="btn btn-sm btn-outline-secondary py-0" @onclick="() => SyncOne(row, assignment)"
+                                                    disabled="@(_busy || SyncTracks(row, assignment).Count == 0)" title="@SyncTitle(row, assignment)">
+                                                <i class="bi bi-magic me-1"></i>Auto-sync
+                                            </button>
                                             <button class="btn btn-sm btn-outline-secondary py-0" @onclick="() => Preview(row, assignment)" disabled="@(_busy || PreviewTrack(row, assignment) == null)"
                                                     title="A minute of captions, side by side">
                                                 <i class="bi bi-eye"></i>
                                             </button>
                                         </div>
-                                        @if (assignment.TimingNote != null)
+                                        @if (assignment.TimingNote != null && shifted)
                                         {
                                             <div class="small text-muted">@assignment.TimingNote</div>
+                                        }
+                                        @if (assignment.Syncing)
+                                        {
+                                            <div class="small"><span class="badge text-bg-light border"><span class="spinner-border spinner-border-sm me-1"></span>auto-syncing</span></div>
+                                        }
+                                        @if (assignment.Synced.Count > 0)
+                                        {
+                                            <div class="small mt-1 mux-copy-synced">
+                                                @foreach (var (index, synced) in assignment.Synced.OrderBy(x => x.Key))
+                                                {
+                                                    <div>
+                                                        <SyncBadge Synced="synced"/>
+                                                        <span class="text-muted">@(assignment.Donor.IsLoose ? "" : $"Track {index}: ")@SubtitleSync.Describe(synced.Report) @synced.Note</span>
+                                                    </div>
+                                                }
+                                                <div class="text-muted">
+                                                    @(assignment.Synced.Count == 1 ? (assignment.Donor.IsLoose ? "It goes" : "This track goes") : "These tracks go") in retimed@(HasUnsyncedTracks(row, assignment) ? "; the shift and stretch above are for the donor's other tracks." : ".")
+                                                    <button class="btn btn-sm btn-link p-0 align-baseline" @onclick="() => Unsync(row, assignment)" disabled="@_busy">Undo</button>
+                                                </div>
+                                            </div>
+                                        }
+                                        @if (assignment.SyncError != null)
+                                        {
+                                            <div class="small text-danger">Auto-sync: @assignment.SyncError</div>
                                         }
                                     </div>
                                 }
@@ -435,6 +480,7 @@
     .mux-copy-list { max-height: 260px; overflow-y: auto; }
     .mux-copy-offset { width: 6.5rem; }
     .mux-copy-assign { max-width: 32rem; }
+    .mux-copy-reference { max-width: 13rem; }
     .mux-copy-table td { min-width: 10rem; }
 </style>
 
@@ -478,6 +524,8 @@
     private CancellationTokenSource _cancel = new();
     private CancellationTokenSource? _checkCancel;
 
+    private SyncReference _syncReference = SyncReference.Subtitles;
+
     private List<SubtitleCopyEngine.PreviewRow>? _preview;
     private string? _previewStatus;
     private string? _previewError;
@@ -492,6 +540,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        AutoSync.CleanUp();
         await using var context = await ContextFactory.CreateDbContextAsync();
         var configured = context.Configs.GetOrDefault<ProcessingConfig>().GetDonorFolders();
         _roots = configured.Where(Directory.Exists).ToList();
@@ -784,7 +833,7 @@
         _donors.Where(d => _rows.All(r => r.Assignments.All(a => a.Donor != d))).ToList();
 
     private int Unchecked() =>
-        _rows.Where(r => r.Include).SelectMany(r => r.Assignments).Count(a => a.Timing == null && !a.Manual);
+        _rows.Where(r => r.Include).SelectMany(r => r.Assignments).Count(a => a.Timing == null && !a.Manual && a.Synced.Count == 0);
 
     private List<CopyRow> Queueable() =>
         _rows.Where(r => r.Include && r.Plan?.Donors is { Count: > 0 }).ToList();
@@ -881,6 +930,109 @@
 
     private void StopCheck() => _checkCancel?.Cancel();
 
+    // The donor's ticked tracks Auto-sync can retime: text ones (pictures only shift).
+    private static List<TrackSnapshot> SyncTracks(CopyRow row, Assignment assignment) =>
+        row.Picked.Where(p => p.From == assignment && AutoSync.CanSync(SubtitleCopyEngine.KindOf(assignment.Donor, p.Track)))
+            .Select(p => p.Track).DistinctBy(t => t.Index).ToList();
+
+    private static bool HasUnsyncedTracks(CopyRow row, Assignment assignment) =>
+        row.Picked.Any(p => p.From == assignment && !assignment.Synced.ContainsKey(p.Track.Index));
+
+    private static string SyncTitle(CopyRow row, Assignment assignment)
+    {
+        if (SyncTracks(row, assignment).Count > 0)
+        {
+            return "Retime the ticked text tracks with alass, part by part (handles cuts and ad breaks)";
+        }
+
+        return row.Picked.Any(p => p.From == assignment)
+            ? "Picture subtitles can only be shifted: use Check and the Shift box"
+            : "Tick a track of this donor first";
+    }
+
+    private List<(CopyRow Row, Assignment Assignment)> SyncWork() =>
+        _rows.Where(r => r.Include)
+            .SelectMany(r => r.Assignments.Where(a => SyncTracks(r, a).Count > 0).Select(a => (Row: r, Assignment: a)))
+            .ToList();
+
+    private Task SyncAll() => RunSyncs(SyncWork());
+
+    private Task SyncOne(CopyRow row, Assignment assignment) => RunSyncs([(row, assignment)]);
+
+    private async Task RunSyncs(List<(CopyRow Row, Assignment Assignment)> work)
+    {
+        _busy = true;
+        _checking = true;
+        _checkCancel = CancellationTokenSource.CreateLinkedTokenSource(_cancel.Token);
+        try
+        {
+            for (var i = 0; i < work.Count; i++)
+            {
+                var (row, assignment) = work[i];
+                assignment.Syncing = true;
+                assignment.SyncError = null;
+                var tracks = SyncTracks(row, assignment);
+                try
+                {
+                    foreach (var track in tracks)
+                    {
+                        var where = $"{(work.Count > 1 ? $"{i + 1} of {work.Count}: " : "")}{row.Label}, track {track.Index} of {assignment.Donor.Name}";
+                        _status = $"Auto-sync {where}";
+                        await InvokeAsync(StateHasChanged);
+                        var synced = await AutoSync.SyncAsync(row.Target, assignment, track, _syncReference,
+                            message => { _status = $"Auto-sync {where}: {message}"; InvokeAsync(StateHasChanged); },
+                            _checkCancel.Token);
+                        // A copy it replaces stays on disk (it may already be queued); old copies are swept after 30 days.
+                        assignment.Synced[track.Index] = synced;
+                        Logger.LogInformation("Copy subtitles: auto-synced track {Track} of {Donor} for {Target}: {What}",
+                            track.Index, assignment.Donor.Path, row.Target.Path, SubtitleSync.Describe(synced.Report));
+                    }
+                }
+                catch (InvalidOperationException e)
+                {
+                    assignment.SyncError = e.Message;
+                    Logger.LogWarning("Copy subtitles: auto-sync of {Donor} failed: {Error}", assignment.Donor.Path, e.Message);
+                }
+                finally
+                {
+                    assignment.Syncing = false;
+                }
+
+                SubtitleCopyEngine.Plan(row, _wanted, _renamed);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Stopped: what was synced stays.
+        }
+        finally
+        {
+            foreach (var (_, assignment) in work)
+            {
+                assignment.Syncing = false;
+            }
+
+            _busy = false;
+            _checking = false;
+            _status = null;
+            _checkCancel?.Dispose();
+            _checkCancel = null;
+        }
+
+        if (!_cancel.IsCancellationRequested)
+        {
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void Unsync(CopyRow row, Assignment assignment)
+    {
+        // The copies stay on disk (one may already be queued) until the 30-day sweep.
+        assignment.Synced.Clear();
+        assignment.SyncError = null;
+        SubtitleCopyEngine.Plan(row, _wanted, _renamed);
+    }
+
     // The donor track the preview shows: the first picked one from that donor, else its first subtitle.
     private TrackSnapshot? PreviewTrack(CopyRow row, Assignment assignment) =>
         row.Picked.Where(p => p.From == assignment).Select(p => p.Track).FirstOrDefault()
@@ -957,6 +1109,10 @@
                 LanguageCode = d.LanguageCode,
                 IsForced = d.IsForced,
                 IsHearingImpaired = d.IsHearingImpaired,
+                Name = d.Name,
+                IsCommentary = d.IsCommentary,
+                SyncedFromPath = d.SyncedFromPath,
+                SyncedFromTrackId = d.SyncedFromTrackId,
                 Output = d.Output,
                 BeforeIndex = d.BeforeIndex
             }).ToList()))

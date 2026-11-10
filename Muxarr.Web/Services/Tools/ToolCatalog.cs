@@ -90,6 +90,16 @@ public static partial class ToolCatalog
         },
         new()
         {
+            Id = "alass", Name = "alass", Purpose = "Auto-sync on the Copy subtitles page: retimes a text subtitle from another release part by part, against the file's subtitles or its sound.",
+            Command = "alass", VersionArguments = ["--version"],
+            VersionPattern = ThreePartVersion(),
+            Upstream = UpstreamKind.GitHubRelease,
+            UpstreamSource = "kaegi/alass",
+            UpstreamPattern = PlainVersion(),
+            ReleaseNotes = "https://github.com/kaegi/alass/releases"
+        },
+        new()
+        {
             Id = "tesseract", Name = "Tesseract", Purpose = "Reads picture subtitles (OCR) for the SDH and commentary check on a file's page.",
             Command = "tesseract", VersionArguments = ["--version"],
             VersionPattern = TesseractVersion()

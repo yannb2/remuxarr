@@ -201,6 +201,18 @@ have to be mounted in the container; read-only is enough).
    - the badge says how many captions line up. "Weak" is normal when two languages are compared.
      The shift and stretch can be set by hand, and the eye button shows a minute of captions of the file
      and the donor side by side, the donor's at the time they will play.
+   - **Auto-sync** is for a release cut differently (an ad break, a longer or shorter scene), where no
+     single shift fits: [alass](https://github.com/kaegi/alass) retimes each ticked *text* track part by
+     part. It lines the donor up with a subtitle track of the file (only its caption times are read, so
+     PGS works as the reference too, and the language does not have to match), or with the file's sound
+     ("with the file's sound", also used when the file has no subtitles; slower and less sure). With
+     subtitles, alass runs with and without its frame-rate guess and the copy whose captions meet the
+     file's best is kept; the badge says how many line up. The note lists the parts it moved
+     ("3 parts moved apart: +2.5 s (13 min), -4.0 s (13 min), +1.2 s (9 min)"), the side by side shows the
+     retimed copy, and Undo goes back to the shift. The retimed copy (UTF-8, ASS kept as ASS) waits in
+     `/config/subtitle-sync` and is what the queue copies in, with the track's language, flags and name;
+     copies older than 30 days are deleted when the page opens. Picture subtitles (PGS, VobSub) cannot be
+     cut up: they keep the shift and stretch, also when the same donor's text tracks are auto-synced.
 5. The last column is the dry run: the tracks each file gets, named and flagged by its profile as if it
    already had them. **Queue** adds one normal conversion per episode. Right before it runs, the
    donors are probed again and the profile runs again with them; mkvmerge reads each donor track as its
@@ -291,7 +303,7 @@ Its tests live in arrkit, not here.
 
 ## Tools and updates
 
-The image pins FFmpeg (BtbN static build), MKVToolNix and dovi_tool with the `ARG` lines in
+The image pins FFmpeg (BtbN static build), MKVToolNix, dovi_tool and alass (built from crates.io) with the `ARG` lines in
 `Muxarr.Web/Dockerfile`; the `env` block of `build-and-deploy.yml` repeats them for the tests and
 the image build args (a test checks they match). The **Tools** page (sidebar) shows what each
 tool reports, the pin and the newest upstream version, looked up once a day
