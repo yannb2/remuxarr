@@ -48,6 +48,9 @@ TOOLS = [
          r"<version>\s*(\d+\.\d+(?:\.\d+)?)\s*</version>", notes="https://mkvtoolnix.download/doc/NEWS.md"),
     Tool("DOVI_TOOL_VERSION", "dovi_tool", "quietvoid/dovi_tool", r"^(\d+\.\d+\.\d+)$", github="release",
          notes="https://github.com/quietvoid/dovi_tool/releases"),
+    # Built from crates.io (alass-cli); the GitHub release tag is the same version.
+    Tool("ALASS_VERSION", "alass", "kaegi/alass", r"^(\d+\.\d+\.\d+)$", github="release",
+         notes="https://github.com/kaegi/alass/releases"),
 ]
 
 

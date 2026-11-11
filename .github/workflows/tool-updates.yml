@@ -1,6 +1,6 @@
 name: Tool updates
 
-# Once a week, looks for newer FFmpeg, MKVToolNix and dovi_tool versions and opens (or updates)
+# Once a week, looks for newer FFmpeg, MKVToolNix, dovi_tool and alass versions and opens (or updates)
 # a pull request that bumps the pins (the ARG lines in Muxarr.Web/Dockerfile and the
 # env block of build-and-deploy.yml, kept in step).
 # The build on that branch is the test; nothing merges on its own.

@@ -61,6 +61,14 @@ public sealed class Assignment
     public bool Manual { get; set; }
 
     public bool Checking { get; set; }
+
+    /// <summary>Auto-sync: the retimed copy of each text track, by the donor's track number.</summary>
+    public Dictionary<int, SyncedSubtitle> Synced { get; } = [];
+
+    /// <summary>Auto-sync failed for this donor: why.</summary>
+    public string? SyncError { get; set; }
+
+    public bool Syncing { get; set; }
 }
 
 /// <summary>One library episode and the donor files assigned to it.</summary>
@@ -207,6 +215,25 @@ public static class SubtitleCopyEngine
                 }
 
                 var final = renamed.GetValueOrDefault(kind, kind);
+                if (assignment.Synced.TryGetValue(track.Index, out var synced))
+                {
+                    // The retimed copy goes in instead: already in the file's times, and a
+                    // loose file, so the language, flags and name are all set here.
+                    picked.Add((new DonorTrack
+                    {
+                        Path = synced.Path,
+                        TrackId = 0,
+                        LanguageCode = final.LanguageCode,
+                        IsForced = final.Forced,
+                        IsHearingImpaired = final.Sdh,
+                        IsCommentary = track.IsCommentary,
+                        Name = track.Name ?? "",
+                        SyncedFromPath = assignment.Donor.Path,
+                        SyncedFromTrackId = track.Index
+                    }, track, assignment));
+                    continue;
+                }
+
                 picked.Add((new DonorTrack
                 {
                     Path = assignment.Donor.Path,
@@ -344,7 +371,7 @@ public static class SubtitleCopyEngine
 
     // The tracks the check compares: the same language on both sides when there is one
     // (picture with picture first, then full before forced), else the first full one of each.
-    private static (TrackSnapshot Target, TrackSnapshot Donor)? ReferencePair(DonorFile donor,
+    public static (TrackSnapshot Target, TrackSnapshot Donor)? ReferencePair(DonorFile donor,
         List<TrackSnapshot> targetSubs, List<TrackSnapshot> donorSubs)
     {
         if (targetSubs.Count == 0)
@@ -429,15 +456,18 @@ public static class SubtitleCopyEngine
             : await CueReader.CaptionsAsync(target.Path, pair.Value.Target.Index, pair.Value.Target.Codec, from, to,
                 Path.Combine(workFolder, "mine"), token);
 
-        var stretch = assignment.Stretch;
-        var donorFrom = Math.Max(0, (long)((from - assignment.OffsetMs) / stretch.Factor) - 5_000);
-        var donorTo = (long)((to - assignment.OffsetMs) / stretch.Factor) + 5_000;
-        var theirs = (await CueReader.CaptionsAsync(assignment.Donor.Path, donorTrack.Index, donorTrack.Codec, donorFrom, donorTo,
-                Path.Combine(workFolder, "theirs"), token))
+        // An auto-synced track shows its retimed copy, which is in the file's times already.
+        var synced = assignment.Synced.GetValueOrDefault(donorTrack.Index);
+        var stretch = synced != null ? None : assignment.Stretch;
+        var offset = synced != null ? 0 : assignment.OffsetMs;
+        var donorFrom = Math.Max(0, (long)((from - offset) / stretch.Factor) - 5_000);
+        var donorTo = (long)((to - offset) / stretch.Factor) + 5_000;
+        var theirs = (await CueReader.CaptionsAsync(synced?.Path ?? assignment.Donor.Path, synced != null ? 0 : donorTrack.Index,
+                synced?.Codec ?? donorTrack.Codec, donorFrom, donorTo, Path.Combine(workFolder, "theirs"), token))
             .Select(c => c with
             {
-                StartMs = Apply(c.StartMs, stretch, assignment.OffsetMs),
-                EndMs = Apply(c.EndMs, stretch, assignment.OffsetMs)
+                StartMs = Apply(c.StartMs, stretch, offset),
+                EndMs = Apply(c.EndMs, stretch, offset)
             })
             .Where(c => c.StartMs >= from && c.StartMs <= to)
             .ToList();

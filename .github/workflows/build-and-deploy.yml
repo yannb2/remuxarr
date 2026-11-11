@@ -24,6 +24,7 @@ env:
     FFMPEG_VERSION: '9.0'
     MKVTOOLNIX_VERSION: '103.0'
     DOVI_TOOL_VERSION: '2.3.4'
+    ALASS_VERSION: '2.0.0'
     DOTNET_VERSION: '10.0.x'
 
 jobs:
@@ -200,6 +201,7 @@ jobs:
                         FFMPEG_VERSION=${{ env.FFMPEG_VERSION }}
                         MKVTOOLNIX_VERSION=${{ env.MKVTOOLNIX_VERSION }}
                         DOVI_TOOL_VERSION=${{ env.DOVI_TOOL_VERSION }}
+                        ALASS_VERSION=${{ env.ALASS_VERSION }}
                     labels: ${{ steps.meta.outputs.labels }}
                     outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
                     cache-from: type=gha,scope=${{ matrix.platform }}

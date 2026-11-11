@@ -642,7 +642,10 @@ public class MediaConverterService(
 
             foreach (var donor in conversion.ConversionPlan.Donors ?? [])
             {
-                conversion.Log($"Adding '{donor.Output!.Name}' ({donor.Output.LanguageCode}) from {Path.GetFileName(donor.Path)}, track {donor.TrackId}"
+                var from = donor.SyncedFromPath != null
+                    ? $"{Path.GetFileName(donor.SyncedFromPath)}, track {donor.SyncedFromTrackId} (auto-synced copy {Path.GetFileName(donor.Path)})"
+                    : $"{Path.GetFileName(donor.Path)}, track {donor.TrackId}";
+                conversion.Log($"Adding '{donor.Output!.Name}' ({donor.Output.LanguageCode}) from {from}"
                                + (donor.SyncValue() is { } sync ? $", timing {sync}" : ""), logger);
             }
         }

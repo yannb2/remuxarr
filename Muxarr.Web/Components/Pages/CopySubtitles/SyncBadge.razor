@@ -1,0 +1,28 @@
+@using Muxarr.Core.SubtitleCopy
+@using Muxarr.Web.Services.SubtitleCopy
+
+@* Fork: how well an auto-synced copy lines up with the file's own captions (none to compare with the sound). *@
+@if (Synced.Score is not { } score)
+{
+    <span class="badge text-bg-info" title="Lined up with the sound: check the side by side">auto-synced</span>
+}
+else
+{
+    var share = $"{score.Matched} of {score.Compared} captions line up after the sync";
+    @switch (score.Quality)
+    {
+        case SubtitleTiming.Quality.Good:
+            <span class="badge text-bg-success" title="@share">auto-synced, @score.Share.ToString("P0")</span>
+            break;
+        case SubtitleTiming.Quality.Weak:
+            <span class="badge text-bg-warning" title="@share">auto-synced, weak: @score.Share.ToString("P0")</span>
+            break;
+        default:
+            <span class="badge text-bg-danger" title="@share">auto-synced, no match: check the side by side</span>
+            break;
+    }
+}
+
+@code {
+    [Parameter] [EditorRequired] public required SyncedSubtitle Synced { get; set; }
+}

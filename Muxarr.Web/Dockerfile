@@ -3,6 +3,7 @@
 ARG FFMPEG_VERSION=9.0
 ARG MKVTOOLNIX_VERSION=103.0
 ARG DOVI_TOOL_VERSION=2.3.4
+ARG ALASS_VERSION=2.0.0
 
 # ffmpeg static build from BtbN (linked from ffmpeg.org). Debian's
 # apt ffmpeg is 5.1 - too old to round-trip MP4 udta.name titles.
@@ -43,10 +44,18 @@ RUN set -eux; \
     tar -xzf /tmp/dovi_tool.tar.gz -C /out; \
     /out/dovi_tool --version
 
+# alass (Auto-sync on the Copy subtitles page), built from crates.io: its GitHub releases
+# have an amd64 binary only. --locked keeps the dependency versions the release was tested with.
+FROM rust:1-slim-trixie AS alass-build
+ARG ALASS_VERSION
+RUN cargo install alass-cli --version "${ALASS_VERSION}" --locked --root /out \
+    && /out/bin/alass-cli --version
+
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-resolute
 ARG FFMPEG_VERSION
 ARG MKVTOOLNIX_VERSION
 ARG DOVI_TOOL_VERSION
+ARG ALASS_VERSION
 
 # Tesseract (with English, French, German, Spanish and Italian) reads picture subtitles for the
 # SDH and commentary check. mkvtoolnix from the project's own repo; the Ubuntu one in the base image is v82 from 2024.
@@ -70,6 +79,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=ffmpeg-dl /out/ffmpeg /usr/local/bin/ffmpeg
 COPY --from=ffmpeg-dl /out/ffprobe /usr/local/bin/ffprobe
 COPY --from=dovi-dl /out/dovi_tool /usr/local/bin/dovi_tool
+COPY --from=alass-build /out/bin/alass-cli /usr/local/bin/alass
 
 WORKDIR /app
 
@@ -85,7 +95,8 @@ ENV ASPNETCORE_HTTP_PORTS=8183 \
     MUXARR_PIN_FFMPEG=${FFMPEG_VERSION} \
     MUXARR_PIN_FFPROBE=${FFMPEG_VERSION} \
     MUXARR_PIN_MKVTOOLNIX=${MKVTOOLNIX_VERSION} \
-    MUXARR_PIN_DOVI_TOOL=${DOVI_TOOL_VERSION}
+    MUXARR_PIN_DOVI_TOOL=${DOVI_TOOL_VERSION} \
+    MUXARR_PIN_ALASS=${ALASS_VERSION}
 EXPOSE 8183
 
 ENTRYPOINT ["./entrypoint.sh", "dotnet", "Muxarr.Web.dll"]

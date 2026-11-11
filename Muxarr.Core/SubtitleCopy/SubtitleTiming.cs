@@ -151,6 +151,23 @@ public static class SubtitleTiming
         return share >= 0.2 && matched >= 4 ? Quality.Weak : Quality.NoMatch;
     }
 
+    /// <summary>
+    /// How well a track already lines up, with no shift: how many of its caption starts
+    /// have one of the file's within <see cref="MatchWindowMs"/>. Grades an Auto-sync result.
+    /// </summary>
+    public static Result Score(IReadOnlyList<long> targetStarts, IReadOnlyList<long> starts)
+    {
+        var compared = Math.Min(targetStarts.Count, starts.Count);
+        if (compared == 0)
+        {
+            return new Result(0, 0, 0, Quality.NoMatch);
+        }
+
+        var target = targetStarts.OrderBy(x => x).ToArray();
+        var matched = Math.Min(compared, starts.Count(s => Math.Abs(Nearest(target, s) - s) <= MatchWindowMs));
+        return new Result(0, matched, compared, Grade(matched, compared));
+    }
+
     /// <summary>Donor time to file time: stretched first, then shifted, as mkvmerge does.</summary>
     public static long Apply(long donorMs, Stretch stretch, long offsetMs) =>
         (long)Math.Round(donorMs * stretch.Factor) + offsetMs;

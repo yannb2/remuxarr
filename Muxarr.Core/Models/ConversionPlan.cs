@@ -201,6 +201,15 @@ public sealed class DonorTrack
     public bool? IsForced { get; set; }
     public bool? IsHearingImpaired { get; set; }
 
+    // Auto-sync: the donor is a retimed copy of a track (a loose .srt/.ass that
+    // has lost the track's name and commentary flag), so those are carried here.
+    public string? Name { get; set; }
+    public bool? IsCommentary { get; set; }
+
+    // Auto-sync: the file and track the retimed copy was made from, for the log.
+    public string? SyncedFromPath { get; set; }
+    public int? SyncedFromTrackId { get; set; }
+
     // Filled when the plan is built from the profile: the name, language and
     // flags the output track gets (all set, nothing inherited), and the source
     // track it goes in front of (-1 = last). Null Output = the profile drops it.

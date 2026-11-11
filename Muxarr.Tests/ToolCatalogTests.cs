@@ -12,6 +12,7 @@ public class ToolCatalogTests
     {
         Assert.AreEqual("103.0", ToolCatalog.InstalledVersion(Tool("mkvtoolnix"), "mkvmerge v103.0 ('Asylum') 64-bit"));
         Assert.AreEqual("2.3.4", ToolCatalog.InstalledVersion(Tool("dovi_tool"), "dovi_tool 2.3.4"));
+        Assert.AreEqual("2.0.0", ToolCatalog.InstalledVersion(Tool("alass"), "alass-cli 2.0.0"));
         Assert.AreEqual("9.0.2", ToolCatalog.InstalledVersion(Tool("ffmpeg"), "ffmpeg version n9.0.2-3-g1234abcd-20261103 Copyright"));
         Assert.AreEqual("9.0", ToolCatalog.InstalledVersion(Tool("ffprobe"), "ffprobe version n9.0-12-g1234 Copyright"));
     }
