@@ -506,7 +506,7 @@ public class CustomConversionEditor
         track.ApplyTrackEdit(_file, _appliedProfile ?? _file.Profile, _tracks, edit);
     }
 
-    /// <summary>Flags chosen on the file page's Track checks ("Use this"), set before the modal opens.</summary>
+    /// <summary>Flags set from a track check ("Use these flags", "Commentary or AD?"), or before the modal opens.</summary>
     public void ApplyPresets(IReadOnlyDictionary<int, TrackFlagPreset>? presets)
     {
         if (presets == null)

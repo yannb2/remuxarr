@@ -1,0 +1,71 @@
+@* Under the Tracks table, once a picture subtitle track is picked to compare: Side by side reads the same
+   slices of each picked track and lines their captions up by time. *@
+
+@if (Session.CompareCount > 0 || Session.Side != null || Session.SideError != null)
+{
+    <div class="d-flex align-items-center flex-wrap gap-2 mt-3">
+        <button type="button" class="btn btn-sm btn-outline-primary" disabled="@(Session.CompareCount < 2 || Session.SideBusy)"
+                @onclick="Session.SideBySide">
+            @if (Session.SideBusy)
+            {
+                <span class="spinner-border spinner-border-sm me-1"></span>
+            }
+            else
+            {
+                <i class="bi bi-layout-split me-1"></i>
+            }
+            Side by side
+        </button>
+        <span class="small text-muted">
+            @(Session.SideStatus ?? (Session.CompareCount < 2
+                ? "Pick one more picture track to compare (the split button in the Check column)."
+                : $"{Session.CompareCount} tracks: their captions from the same slices, lined up by time."))
+        </span>
+        @if (Session.Side != null)
+        {
+            <button type="button" class="btn btn-sm btn-link text-muted p-0 ms-auto" @onclick="Session.CloseSide">Close</button>
+        }
+    </div>
+    @if (Session.SideError != null)
+    {
+        <div class="alert alert-danger py-1 px-2 mt-2 mb-0 small">@Session.SideError</div>
+    }
+    @if (Session.Side is { } side)
+    {
+        <div class="border rounded mt-2" style="max-height: 520px; overflow: auto; background: #1b1b1b;">
+            <table class="table table-sm table-dark align-middle mb-0 small">
+                <thead>
+                <tr>
+                    <th style="width: 5rem;">Time</th>
+                    @foreach (var header in side.Headers)
+                    {
+                        <th>@header</th>
+                    }
+                </tr>
+                </thead>
+                <tbody>
+                @foreach (var row in side.Rows)
+                {
+                    <tr>
+                        <td class="text-secondary text-nowrap">@TrackCheckSession.Clock(row.At)</td>
+                        @foreach (var cell in row.Cells)
+                        {
+                            <td class="text-center">
+                                @if (cell != null)
+                                {
+                                    <img src="@cell" alt="" style="max-width: 100%; max-height: 70px;"/>
+                                }
+                            </td>
+                        }
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+        <div class="small text-muted mt-1">@side.Rows.Count of @side.Total moments shown. An empty cell: that track shows nothing then (a forced track only has the foreign lines).</div>
+    }
+}
+
+@code {
+    [Parameter, EditorRequired] public required TrackCheckSession Session { get; set; }
+}

@@ -4,6 +4,7 @@
 @using Muxarr.Web.Components.Pages.Conversions
 @using Muxarr.Web.Components.Pages.Library
 @using Muxarr.Web.Components.Shared.Modals
+@using Muxarr.Web.Components.Shared.TrackChecks
 @implements IDisposable
 
 @* Fork: remux any file from outside the library (/downloads, /mnt/pc) with a profile or a custom
@@ -182,6 +183,8 @@
             <p class="text-muted small mb-3">
                 What the profile would write, ready to change: tick or untick tracks, move them with the arrows, and
                 edit languages, names and flags. <strong>Now:</strong> under a track is how the file has it.
+                <strong>Check</strong> on an audio or subtitle row listens to it, previews it or checks it for SDH and
+                commentary, from a few short slices of the file.
                 Changing the profile or the original language fills the table again.
             </p>
             @if (_editor == null || _file.Snapshot.Tracks.Count == 0)
@@ -191,7 +194,7 @@
             else
             {
                 <div class="table-responsive">
-                    <CustomConversionPanel @key="_editor" Editor="_editor" File="_file" ShowCurrent="true" ShowProfileBar="false" Open="true">
+                    <CustomConversionPanel @key="_editor" Editor="_editor" File="_file" Checks="_checks" ShowCurrent="true" ShowProfileBar="false" Open="true">
                         <LeftActions>
                             <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="RefreshPreview">
                                 <i class="bi bi-arrow-counterclockwise me-1"></i>Back to the profile
@@ -282,6 +285,7 @@
     private Profile? _profile;
     private string? _originalLanguage;
     private CustomConversionEditor? _editor;
+    private TrackCheckSession? _checks;
     private string _output = "";
     private bool _outputExists;
     private bool _busy;
@@ -463,6 +467,8 @@
             }
 
             _file = file;
+            _checks?.Dispose();
+            _checks = new TrackCheckSession(file);
             _originalLanguage = GuessOriginalLanguage(file);
             _profile ??= _profiles.GetBestCandidate(path) ?? _profiles.FirstOrDefault();
             RefreshPreview();
@@ -488,6 +494,8 @@
     {
         _file = null;
         _editor = null;
+        _checks?.Dispose();
+        _checks = null;
         if (_browse != null)
         {
             Browse(_browse);
@@ -580,5 +588,6 @@
     public void Dispose()
     {
         MediaConverter.ConverterStateChanged -= OnConverterStateChanged;
+        _checks?.Dispose();
     }
 }

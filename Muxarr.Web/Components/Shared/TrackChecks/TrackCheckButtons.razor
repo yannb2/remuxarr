@@ -1,0 +1,55 @@
+@using Arrkit.Subtitles
+@* The Check cell of one audio or subtitle row in the Tracks table: Listen for audio; Preview, Check for SDH
+   and commentary, and Compare (picture tracks) for subtitles. What they find shows in TrackCheckResult,
+   on a row of its own under the track. *@
+
+@{ var state = Session.StateOf(Track.Index); }
+<div class="d-flex gap-1 align-items-center">
+    @if (Track.Type == MediaTrackType.Audio)
+    {
+        <ToolTip Tip="Listen to 20 seconds of this track (stereo preview, from a third of the way in)">
+            <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@state.Busy" @onclick="() => Session.Listen(Track)">
+                <i class="bi @(state.Busy ? "bi-hourglass-split" : "bi-headphones")"></i>
+            </button>
+        </ToolTip>
+    }
+    else if (Track.Type == MediaTrackType.Subtitles)
+    {
+        @if (TrackSampler.IsUnreadablePictures(Track.Codec))
+        {
+            <ToolTip Tip="Only PGS picture subtitles can be read here.">
+                <span class="text-muted small text-nowrap">Can't read</span>
+            </ToolTip>
+        }
+        else
+        {
+            <ToolTip Tip="Preview: show captions from a few short slices of the track">
+                <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@state.Busy" @onclick="() => Session.Preview(Track)">
+                    <i class="bi bi-card-text"></i>
+                </button>
+            </ToolTip>
+            <ToolTip Tip="Check whether this track reads like SDH or a commentary">
+                <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@state.Busy" @onclick="() => Session.Check(Track)">
+                    <i class="bi @(state.Busy ? "bi-hourglass-split" : "bi-search")"></i>
+                </button>
+            </ToolTip>
+            @if (TrackSampler.IsPictures(Track.Codec))
+            {
+                var compared = Session.IsCompared(Track.Index);
+                <ToolTip Tip="Compare: pick two or more picture tracks, then Side by side under the table lines their captions up by time">
+                    <button type="button" class="btn btn-sm @(compared ? "btn-primary" : "btn-outline-secondary")"
+                            @onclick="() => Session.ToggleCompare(Track.Index, !compared)">
+                        <i class="bi bi-layout-split"></i>
+                    </button>
+                </ToolTip>
+            }
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public required TrackCheckSession Session { get; set; }
+
+    /// <summary>The row as the Tracks table has it: the check reads the file's track with this number.</summary>
+    [Parameter, EditorRequired] public required TrackSnapshot Track { get; set; }
+}

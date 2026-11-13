@@ -121,22 +121,24 @@ The Remux a file page uses the same table.
 
 ### Track checks
 
-A file's page has a Track checks card, taken from Ripparr:
+The checks, taken from Ripparr, sit in the **Check** column of the Tracks table (file page and Remux a
+file), on each audio and subtitle row, next to the track's name and flags:
 
-- **Listen** plays 20 seconds of an audio track (from a third of the way in), as stereo AAC.
-- **Preview** shows up to 24 captions of a subtitle track: pictures for PGS, text for SRT and ASS.
-- **Check SDH and commentary** reads up to 120 captions (Tesseract OCR for PGS, in the track's
-  language) and says whether the track looks like SDH (sound descriptions, speaker labels, lyrics)
-  or a commentary. It only reports: the flags are still set in the Tracks table.
+- **Listen** (headphones) plays 20 seconds of an audio track (from a third of the way in), as stereo AAC.
+- **Preview** (card) shows up to 24 captions of a subtitle track: pictures for PGS, text for SRT and ASS.
+- **Check** (magnifier) reads up to 120 captions (Tesseract OCR for PGS, in the language the row has)
+  and says whether the track looks like SDH (sound descriptions, speaker labels, lyrics) or a commentary.
 
-Tick **Compare** on two or more PGS tracks and **Side by side** lines their captions up by time (from the
-same slices), as Ripparr's compare page does: handy to tell the forced track from the full one, or SDH from
-plain subtitles.
+What they find opens on a row under the track, each part with its own Close. When the check disagrees
+with the row's flags, **Use these flags** sets SDH and commentary on that row. A lossy stereo track after a
+multichannel one in the same language gets a **Commentary or AD?** hint under it (the file can't say
+which), with Commentary and AD buttons that set the flag; the hint goes once either is set. Audio rows
+have an **AD** flag button (eye) for audio description.
 
-When the check disagrees with the track's flags, **Use this in Tracks** sets those flags in the
-Tracks table at the top of the page. A lossy stereo track after a multichannel one in the same
-language gets a **Commentary or AD?** hint (the file can't say which), with Commentary and AD buttons
-that do the same.
+Pick two or more PGS tracks with **Compare** (split button) and **Side by side**, under the table, lines
+their captions up by time (from the same slices), as Ripparr's compare page does: handy to tell the
+forced track from the full one, or SDH from plain subtitles. The results stay when the table is filled
+again from the profile.
 
 Only 12 slices of 40 seconds, spread over the film past the titles and before the credits, are read
 with ffmpeg, so a 60 GB remux takes seconds, not a full read. VobSub and DVB picture subtitles are not

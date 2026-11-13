@@ -1,7 +1,10 @@
 @using Muxarr.Web.Components.Pages.Library
+@using Muxarr.Web.Components.Shared.TrackChecks
+@implements IDisposable
 @* The custom conversion editor itself: file title, every track (keep, order, language, name, flags),
    chapters and global tags. The modal wraps it with Cancel / Add to Queue; the file pages show it inline,
-   filled from the profile, with their own buttons in Actions. *@
+   filled from the profile, with their own buttons in Actions. Given Checks, each audio and subtitle row also
+   gets its checks (listen, preview, SDH and commentary), with what they find on a row under the track. *@
 
     <div class="mb-3">
         <label class="form-label small text-muted mb-1" for="customFileTitle">File title</label>
@@ -38,6 +41,10 @@
             <th style="width: 1%;">Format</th>
             <th>Track Name</th>
             <th>Flags</th>
+            @if (Checks != null)
+            {
+                <th style="width: 1%;">Check</th>
+            }
         </tr>
         </thead>
         <tbody>
@@ -48,7 +55,7 @@
             {
                 lastType = track.Type;
                 <tr>
-                    <td colspan="6" class="fw-semibold text-body-secondary small py-1">
+                    <td colspan="@Columns" class="fw-semibold text-body-secondary small py-1">
                         <i class="bi @TrackTypeDisplay.Icon(track.Type) me-1"></i>@TrackTypeDisplay.Label(track.Type)
                     </td>
                 </tr>
@@ -173,6 +180,16 @@
                                     <i class="bi bi-chat-quote"></i>
                                 </button>
                             </ToolTip>
+                            @if (track.Type == MediaTrackType.Audio)
+                            {
+                                <ToolTip Tip="Audio description (AD) - A narrator describes what is on screen, for blind/visually impaired viewers">
+                                    <button type="button"
+                                            class="btn btn-sm @(track.IsVisualImpaired ? "btn-primary" : "btn-outline-secondary")"
+                                            @onclick="() => Editor.Edit(track, t => t.IsVisualImpaired = !t.IsVisualImpaired)">
+                                        <i class="bi bi-eye"></i>
+                                    </button>
+                                </ToolTip>
+                            }
                             <ToolTip
                                 Tip="Dub - Translated audio (e.g. English dub of a Japanese show). Matroska has no FlagDub; the state is stored in the track title and will be appended/stripped automatically when you toggle this. On MP4 it maps to a native disposition flag.">
                                 <button type="button"
@@ -184,10 +201,33 @@
                         </div>
                     }
                 </td>
+                @if (Checks != null)
+                {
+                    <td data-label="Check" class="mux-cell-inline">
+                        @if (!isVideo)
+                        {
+                            <TrackCheckButtons Session="Checks" Track="track"/>
+                        }
+                    </td>
+                }
             </tr>
+            @if (Checks != null && !isVideo && TrackCheckResult.HasAnything(Checks, track))
+            {
+                <tr>
+                    <td colspan="2" class="border-0"></td>
+                    <td colspan="@(Columns - 2)" class="pt-0">
+                        <TrackCheckResult Session="Checks" Track="track" OnFlags="preset => SetFlags(track, preset)"/>
+                    </td>
+                </tr>
+            }
         }
         </tbody>
     </table>
+
+    @if (Checks != null)
+    {
+        <TrackCheckCompare Session="Checks"/>
+    }
 
     @if (Editor.HasChapters || Open)
     {
@@ -475,11 +515,52 @@
     [Parameter] public RenderFragment? Actions { get; set; }
     [Parameter] public RenderFragment? LeftActions { get; set; }
 
+    /// <summary>
+    /// The page's track checks for this file. Given, each audio and subtitle row gets a Check column; the page
+    /// keeps the session so what was found survives the table being filled again.
+    /// </summary>
+    [Parameter] public TrackCheckSession? Checks { get; set; }
+
     private int _selectedProfileId;
+    private TrackCheckSession? _listening;
+
+    private int Columns => Checks != null ? 7 : 6;
 
     protected override void OnInitialized()
     {
         _selectedProfileId = Profile?.Id ?? Profiles.FirstOrDefault()?.Id ?? 0;
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (ReferenceEquals(_listening, Checks))
+        {
+            return;
+        }
+
+        if (_listening != null)
+        {
+            _listening.Changed -= OnChecksChanged;
+        }
+
+        _listening = Checks;
+        if (_listening != null)
+        {
+            _listening.Changed += OnChecksChanged;
+        }
+    }
+
+    private Task OnChecksChanged() => InvokeAsync(StateHasChanged);
+
+    private void SetFlags(TrackSnapshot track, TrackFlagPreset preset) =>
+        Editor.ApplyPresets(new Dictionary<int, TrackFlagPreset> { [track.Index] = preset });
+
+    public void Dispose()
+    {
+        if (_listening != null)
+        {
+            _listening.Changed -= OnChecksChanged;
+        }
     }
 
     private void OnProfileSelected(ChangeEventArgs e)
@@ -513,6 +594,7 @@
         || edited.IsForced != current.IsForced
         || edited.IsHearingImpaired != current.IsHearingImpaired
         || edited.IsCommentary != current.IsCommentary
+        || edited.IsVisualImpaired != current.IsVisualImpaired
         || edited.IsDub != current.IsDub;
 
     // How the track reads now: its name, language and the flags it carries.
@@ -523,6 +605,7 @@
         if (current.IsForced) flags.Add("forced");
         if (current.IsHearingImpaired) flags.Add("SDH");
         if (current.IsCommentary) flags.Add("commentary");
+        if (current.IsVisualImpaired) flags.Add("AD");
         if (current.IsDub) flags.Add("dub");
         var name = string.IsNullOrEmpty(current.Name) ? "(no name)" : current.Name;
         return $"{name} · {current.LanguageName}" + (flags.Count > 0 ? $" · {string.Join(", ", flags)}" : "");

@@ -2,13 +2,14 @@ using Muxarr.Core.Extensions;
 using Muxarr.Core.Models;
 using Muxarr.Data.Extensions;
 using Muxarr.Web.Components.Shared.Modals;
+using Muxarr.Web.Components.Shared.TrackChecks;
 using static Muxarr.Tests.TestData;
 
 namespace Muxarr.Tests;
 
 /// <summary>
-/// What the file page's Track checks hand to Custom conversion: the "Commentary or AD?" hint, the
-/// flags picked there, and the release label box.
+/// The track checks in the Tracks table: the "Commentary or AD?" hint, the flags set from a check,
+/// and the release label box.
 /// </summary>
 [TestClass]
 public class TrackChecksTests
@@ -62,6 +63,65 @@ public class TrackChecksTests
         Assert.IsFalse(audio.IsCommentary, "a flag the preset leaves out stays as it was");
         Assert.IsTrue(sub.IsHearingImpaired);
         Assert.IsFalse(editor.Tracks.Single(t => t.Index == 1).IsVisualImpaired);
+    }
+
+    [TestMethod]
+    public void TheCommentaryOrAdHintGoesOnceTheRowIsMarked()
+    {
+        var file = MakeFile("English", Video(0),
+            Audio(1, "English", nameof(AudioCodec.TrueHd), channels: 8),
+            Audio(2, "English", nameof(AudioCodec.Ac3), channels: 2),
+            Audio(3, "English", nameof(AudioCodec.Ac3), channels: 2));
+        using var checks = new TrackCheckSession(file);
+        var editor = new CustomConversionEditor(file);
+        var second = editor.Tracks.Single(t => t.Index == 2);
+        var third = editor.Tracks.Single(t => t.Index == 3);
+
+        Assert.IsTrue(TrackCheckResult.ShowUnsure(checks, second));
+        Assert.IsTrue(TrackCheckResult.HasAnything(checks, second), "the hint needs a row under the track");
+        Assert.IsFalse(TrackCheckResult.HasAnything(checks, editor.Tracks.Single(t => t.Index == 1)));
+
+        editor.ApplyPresets(new Dictionary<int, TrackFlagPreset> { [2] = new(Commentary: true), [3] = new(VisualImpaired: true) });
+
+        Assert.IsFalse(TrackCheckResult.ShowUnsure(checks, second));
+        Assert.IsFalse(TrackCheckResult.ShowUnsure(checks, third));
+        Assert.IsFalse(TrackCheckResult.HasAnything(checks, second));
+    }
+
+    [TestMethod]
+    public async Task ClosingAResultEmptiesTheRowAndRedrawsTheTable()
+    {
+        var file = MakeFile("English", Video(0), Audio(1, "English"), Sub(2, "English"));
+        using var checks = new TrackCheckSession(file);
+        var redraws = 0;
+        checks.Changed += () =>
+        {
+            redraws++;
+            return Task.CompletedTask;
+        };
+        var state = checks.StateOf(2);
+        state.Error = "No captions in the slices read: nothing to check.";
+        Assert.IsTrue(state.HasResult);
+
+        await checks.Update(() => state.Error = null);
+        await checks.ToggleCompare(2, true);
+
+        Assert.IsFalse(state.HasResult);
+        Assert.IsTrue(checks.IsCompared(2));
+        Assert.AreEqual(2, redraws, "the table draws again, so the row under the track and Side by side follow");
+    }
+
+    [TestMethod]
+    public void TheCheckIsComparedWithTheFlagsInTheTable()
+    {
+        var file = MakeFile("English", Video(0), Audio(1, "English"), Sub(2, "English"));
+        var editor = new CustomConversionEditor(file);
+        var sub = editor.Tracks.Single(t => t.Index == 2);
+        var guess = new Arrkit.Subtitles.TrackGuess(Sdh: true, Commentary: false, Reason: "sound descriptions");
+
+        Assert.IsTrue(TrackCheckSession.FlagsDiffer(sub, guess));
+        editor.ApplyPresets(new Dictionary<int, TrackFlagPreset> { [2] = new(HearingImpaired: guess.Sdh, Commentary: guess.Commentary) });
+        Assert.IsFalse(TrackCheckSession.FlagsDiffer(sub, guess), "Use these flags makes the row match");
     }
 
     [TestMethod]
