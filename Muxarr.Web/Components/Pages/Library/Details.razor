@@ -1,6 +1,7 @@
 ﻿@page "/library/{Id:int}"
 @using Muxarr.Web.Components.Pages.Conversions
 @using Muxarr.Web.Components.Shared.Modals
+@using Muxarr.Web.Components.Shared.TrackChecks
 @inherits DisposableComponent
 @attribute [StreamRendering]
 
@@ -85,7 +86,9 @@
             languages, names and flags; keep, remove or rename the chapters; fill in, change or remove global tags.
             <strong>Now:</strong> under a field is how the file has it today. <strong>Queue these changes</strong>
             converts exactly what is shown; <strong>Add to Queue</strong> above runs the profile as it is. Changing the
-            profile above fills everything again.
+            profile above fills everything again. <strong>Check</strong> on an audio or subtitle row reads a few short
+            slices of the file: listen to an audio track, preview a subtitle track or check whether it is SDH or a
+            commentary; what it finds shows under the track, with a button to set its flags.
         </p>
         @if (_editor == null || File.Snapshot.Tracks.Count == 0)
         {
@@ -94,7 +97,7 @@
         else
         {
             <div class="table-responsive">
-                <CustomConversionPanel @key="_editor" Editor="_editor" File="File" ShowCurrent="true" ShowProfileBar="false" Open="true">
+                <CustomConversionPanel @key="_editor" Editor="_editor" File="File" Checks="_checks" ShowCurrent="true" ShowProfileBar="false" Open="true">
                     <LeftActions>
                         <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="FillEditor">
                             <i class="bi bi-arrow-counterclockwise me-1"></i>Back to the profile
@@ -163,13 +166,6 @@
 
         </div>
 
-        @if (File.Snapshot.Tracks.Any(t => t.Type is MediaTrackType.Audio or MediaTrackType.Subtitles))
-        {
-            <div class="col-12">
-                <TrackChecks File="File" OnUse="UsePresets"/>
-            </div>
-        }
-
         @if (File.OriginalTrackNames is { Tracks.Count: > 0 } backup)
         {
             <div class="col-12">
@@ -230,6 +226,7 @@
 
     protected MediaFile? File { get; set; }
     private CustomConversionEditor? _editor;
+    private TrackCheckSession? _checks;
     private Profile? _editorProfile;
     private int? _editorSnapshotId;
     private List<Profile> _profiles = new();
@@ -272,6 +269,12 @@
         if (_editor == null || _editorSnapshotId != File.SnapshotId)
         {
             FillEditor();
+            _checks?.Dispose();
+            _checks = new TrackCheckSession(File);
+        }
+        else if (_checks != null)
+        {
+            _checks.File = File;
         }
     }
 
@@ -355,13 +358,6 @@
         }
     }
 
-    // Track checks' "Use this": the flags go into the table, to check and queue from there.
-    private void UsePresets(IReadOnlyDictionary<int, TrackFlagPreset> presets)
-    {
-        _editor?.ApplyPresets(presets);
-        ToastService.ShowInfo("Set in the Tracks table at the top. Check it, then Queue these changes.");
-    }
-
     private async Task QueueEditor()
     {
         if (_editor == null || !_editor.HasAudio || _isSubmitting)
@@ -429,6 +425,7 @@
     public override void Dispose()
     {
         MediaConverter.ConverterStateChanged -= OnConverterStateChanged;
+        _checks?.Dispose();
         base.Dispose();
     }
 
